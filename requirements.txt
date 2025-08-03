@@ -1,0 +1,6 @@
+streamlit>=1.47.1
+pandas
+openpyxl
+requests
+streamlit-autorefresh
+altair
