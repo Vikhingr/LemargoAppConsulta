@@ -1,349 +1,177 @@
 import streamlit as st
-import os
 import pandas as pd
-import requests
+import os
 import datetime
-import json
-import hashlib
-import altair as alt
+import requests
+import io
+import matplotlib.pyplot as plt
 
-# --- OneSignal Config desde secrets ---
-APP_ID = st.secrets.get("ONESIGNAL_APP_ID")
-REST_API_KEY = st.secrets.get("ONESIGNAL_REST_API_KEY")
+# ================================
+# CARGA DE VARIABLES DE SECRETO
+# ================================
+ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
+ONESIGNAL_REST_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
+ADMIN_USER = st.secrets["ADMIN_USER"]
+ADMIN_PASS = st.secrets["ADMIN_PASS"]
 
-# --- Credenciales admin desde secrets ---
-ADMIN_USER = st.secrets.get("ADMIN_USER")
-ADMIN_PASS = st.secrets.get("ADMIN_PASS")
+# ================================
+# CONFIGURACIÓN GENERAL
+# ================================
+st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide")
 
-# --- Rutas y archivos ---
-EXCEL_PATH = "archivo_cargado.xlsx"
-HISTORIAL_PATH = "historial_actualizaciones.json"
-HASH_PATH = "hash_actual.txt"
-
-# --- PWA Setup (manifest e iconos) ---
-def pwa_setup():
-    st.markdown("""
-        <link rel="manifest" href="manifest.json">
-        <meta name="theme-color" content="#0f1116">
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="black">
-        <link rel="apple-touch-icon" href="Lemargo-192x192.png">
-        <link rel="icon" type="image/png" sizes="192x192" href="Lemargo-192x192.png">
-    """, unsafe_allow_html=True)
-
-# --- OneSignal Web Push Setup con prompt automático ---
-def onesignal_web_push_setup():
-    if not APP_ID:
-        st.error("❌ APP_ID de OneSignal no configurado en secrets.")
-        return
-
-    st.markdown(f"""
-    <script>
-    (function() {{
-        function loadOneSignalSDK(callback) {{
-            var script = document.createElement('script');
-            script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-            script.async = true;
-            script.onload = callback;
-            document.head.appendChild(script);
-        }}
-
-        function initOneSignal() {{
-            window.OneSignal = window.OneSignal || [];
-            OneSignal.push(function() {{
-                OneSignal.init({{
-                    appId: "{APP_ID}",
-                    notifyButton: {{
-                        enable: true,
-                    }},
-                    allowLocalhostAsSecureOrigin: true,
-                    serviceWorkerPath: "/OneSignalSDKWorker.js",
-                    serviceWorkerUpdaterPath: "/OneSignalSDKUpdaterWorker.js"
-                }});
-                OneSignal.showSlidedownPrompt();
-            }});
-        }}
-
-        if (typeof OneSignal === "undefined") {{
-            loadOneSignalSDK(initOneSignal);
-        }} else {{
-            initOneSignal();
-        }}
-    }})();
-    </script>
-    """, unsafe_allow_html=True)
-
-# --- Banner instalación PWA (opcional, ya que el prompt es automático) ---
-def pwa_install_prompt():
-    st.markdown("""
-    <script>
-      let deferredPrompt;
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        // Prompt automático:
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then((choiceResult) => {
-          if(choiceResult.outcome === 'accepted'){
-            console.log('Usuario aceptó instalar');
-          } else {
-            console.log('Usuario rechazó instalar');
-          }
-          deferredPrompt = null;
-        });
-      });
-    </script>
-    """, unsafe_allow_html=True)
-
-# --- Enviar notificación ---
-def enviar_notificacion(titulo, mensaje):
-    if not REST_API_KEY or not APP_ID:
-        st.error("❌ Claves OneSignal no configuradas correctamente.")
-        return
-
-    url = "https://onesignal.com/api/v1/notifications"
+# ================================
+# FUNCIONES
+# ================================
+def enviar_notificacion_push(titulo, mensaje, segment):
     headers = {
         "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Basic {REST_API_KEY}"
+        "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
     }
     payload = {
-        "app_id": APP_ID,
-        "included_segments": ["All"],
+        "app_id": ONESIGNAL_APP_ID,
+        "included_segments": ["Subscribed Users"],
+        "filters": [
+            {"field": "tag", "key": "destino_fecha", "relation": "=", "value": segment}
+        ],
         "headings": {"en": titulo},
-        "contents": {"en": mensaje},
-        "ios_sound": "default",
-        "android_sound": "default"
+        "contents": {"en": mensaje}
     }
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        st.success("✅ Notificación enviada")
-    except requests.RequestException as e:
-        st.error(f"❌ Error al enviar notificación: {e}")
+    r = requests.post("https://onesignal.com/api/v1/notifications", headers=headers, json=payload)
+    return r.status_code == 200
 
-# --- Historial ---
-def cargar_historial():
-    if os.path.exists(HISTORIAL_PATH):
-        try:
-            with open(HISTORIAL_PATH, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+def cargar_datos_excel(archivo):
+    return pd.read_excel(archivo)
 
-def guardar_historial(fecha_hora):
-    historial = cargar_historial()
-    historial.append(fecha_hora)
-    try:
-        with open(HISTORIAL_PATH, "w") as f:
-            json.dump(historial, f)
-    except Exception as e:
-        st.error(f"Error guardando historial: {e}")
+def guardar_historico(df, archivo="historico_estatus.xlsx"):
+    df.to_excel(archivo, index=False)
 
-# --- Hash archivo con SHA256 ---
-def calcular_hash_archivo():
-    if not os.path.exists(EXCEL_PATH):
-        return ""
-    try:
-        hasher = hashlib.sha256()
-        with open(EXCEL_PATH, "rb") as f:
-            buf = f.read(65536)
-            while len(buf) > 0:
-                hasher.update(buf)
-                buf = f.read(65536)
-        return hasher.hexdigest()
-    except Exception as e:
-        st.error(f"Error calculando hash archivo: {e}")
-        return ""
+def leer_historico(archivo="historico_estatus.xlsx"):
+    if os.path.exists(archivo):
+        return pd.read_excel(archivo)
+    else:
+        return pd.DataFrame()
 
-def guardar_hash_actual(hash_valor):
-    try:
-        with open(HASH_PATH, "w") as f:
-            f.write(hash_valor)
-    except Exception as e:
-        st.error(f"Error guardando hash: {e}")
+def comparar_y_actualizar(historico, nuevo):
+    nuevo["ID"] = nuevo["Destino"].astype(str) + "_" + pd.to_datetime(nuevo["Fecha"]).dt.strftime("%Y-%m-%d")
+    historico["ID"] = historico["Destino"].astype(str) + "_" + pd.to_datetime(historico["Fecha"]).dt.strftime("%Y-%m-%d")
 
-def cargar_hash_guardado():
-    if os.path.exists(HASH_PATH):
-        try:
-            with open(HASH_PATH, "r") as f:
-                return f.read()
-        except Exception:
-            return ""
-    return ""
+    df_merged = pd.merge(nuevo, historico, on="ID", how="left", suffixes=('', '_old'))
+    cambios = df_merged[df_merged["Estado de atención"] != df_merged["Estado de atención_old"]]
 
-# --- Datos con cache ---
-@st.cache_data(show_spinner=False)
-def cargar_datos():
-    return pd.read_excel(EXCEL_PATH)
+    registros_actualizados = []
+    for _, fila in cambios.iterrows():
+        fila_dict = fila[nuevo.columns].to_dict()
+        fila_dict["Hora consulta"] = datetime.datetime.now()
+        fila_dict["Fuente"] = "actualización"
+        registros_actualizados.append(fila_dict)
+        enviar_notificacion_push(
+            titulo=f"Pedido actualizado: {fila['Destino']}",
+            mensaje=f"Nuevo estatus: {fila['Estado de atención']}",
+            segment=fila["ID"]
+        )
 
-# --- Login ---
-def login():
-    st.title("🔐 Login Administrador")
-    user = st.text_input("Usuario")
-    pwd = st.text_input("Contraseña", type="password")
-    if st.button("Entrar"):
-        if user == ADMIN_USER and pwd == ADMIN_PASS:
-            st.session_state.logged_in = True
-            # Uso seguro de rerun
-            try:
-                st.experimental_rerun()
-            except AttributeError:
-                st.rerun()
+    df_actualizados = pd.DataFrame(registros_actualizados)
+    historico = pd.concat([historico, df_actualizados], ignore_index=True)
+    historico.drop_duplicates(subset=["ID", "Estado de atención"], keep="last", inplace=True)
+
+    return historico
+
+def mostrar_grafica_destino(historico, destino):
+    df = historico[historico["Destino"] == destino]
+    if df.empty:
+        st.warning("No hay datos para este destino.")
+        return
+    df = df.sort_values("Fecha")
+    conteo = df.groupby(["Fecha", "Estado de atención"]).size().unstack().fillna(0)
+    conteo.plot(kind='bar', stacked=True)
+    st.pyplot(plt.gcf())
+    plt.clf()
+
+# ================================
+# PÁGINA DE ADMIN
+# ================================
+def pagina_admin():
+    st.title("Panel de Administración")
+    st.markdown("### Subir nuevo archivo de pedidos")
+
+    archivo_cargado = st.file_uploader("Selecciona el archivo Excel", type=["xlsx"])
+    if archivo_cargado and st.button("Actualizar Base"):
+        nuevo_df = cargar_datos_excel(archivo_cargado)
+        historico_df = leer_historico()
+        actualizado_df = comparar_y_actualizar(historico_df, nuevo_df)
+        guardar_historico(actualizado_df)
+        st.success("Base actualizada correctamente.")
+
+    st.markdown("---")
+    st.markdown("### Ver histórico completo")
+    df = leer_historico()
+    st.dataframe(df)
+
+# ================================
+# PÁGINA DE USUARIO
+# ================================
+def pagina_usuario():
+    st.title("Consulta de Pedido")
+
+    destino = st.text_input("Ingresa tu número de destino")
+    fecha = st.date_input("Selecciona la fecha del pedido")
+
+    if destino and fecha:
+        df = leer_historico()
+        df = df[df["Destino"] == destino]
+        df = df[pd.to_datetime(df["Fecha"]).dt.date == fecha]
+
+        if df.empty:
+            st.warning("No se encontró información.")
         else:
-            st.error("❌ Usuario o contraseña incorrectos")
+            st.success("Resultado encontrado:")
+            st.dataframe(df[[
+                "Fecha", "Folio Pedido", "Destino", "Producto",
+                "Presentación", "Transportista", "Estado de atención"
+            ]])
 
-# --- Dashboard admin ---
-def admin_dashboard():
-    if not os.path.exists(EXCEL_PATH):
-        st.info("Aún no hay archivo cargado.")
-        return
+            # Suscripción personalizada
+            st.markdown(f"""
+            <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+            <script>
+              window.OneSignal = window.OneSignal || [];
+              OneSignal.push(function() {{
+                OneSignal.init({{
+                  appId: "{ONESIGNAL_APP_ID}",
+                  notifyButton: {{
+                    enable: true,
+                  }},
+                  allowLocalhostAsSecureOrigin: true
+                }});
+                OneSignal.sendTag("destino_fecha", "{destino}_{fecha}");
+              }});
+            </script>
+            """, unsafe_allow_html=True)
 
-    try:
-        df = cargar_datos()
-    except Exception as e:
-        st.error(f"Error leyendo archivo: {e}")
-        return
+            # Historial visual
+            st.markdown("### Historial visual del destino")
+            mostrar_grafica_destino(leer_historico(), destino)
 
-    st.subheader("📊 Visualización de datos")
+            # Botón exportar
+            buffer = io.BytesIO()
+            df.to_excel(buffer, index=False)
+            st.download_button("📤 Descargar reporte", buffer.getvalue(), file_name=f"reporte_{destino}_{fecha}.xlsx")
 
-    if 'Estado de atención' in df.columns:
-        conteo_estado = df['Estado de atención'].value_counts().reset_index()
-        conteo_estado.columns = ['Estado', 'Cantidad']
-        chart_estado = alt.Chart(conteo_estado).mark_bar().encode(
-            x=alt.X('Estado', sort='-y'),
-            y='Cantidad',
-            color='Estado'
-        ).properties(width=600)
-        st.altair_chart(chart_estado)
-
-    if 'Destino' in df.columns:
-        conteo_destino = df['Destino'].value_counts().reset_index()
-        conteo_destino.columns = ['Destino', 'Cantidad']
-        chart_destino = alt.Chart(conteo_destino).mark_bar().encode(
-            x=alt.X('Destino', sort='-y'),
-            y='Cantidad',
-            color='Destino'
-        ).properties(width=600)
-        st.altair_chart(chart_destino)
-
-# --- Panel Admin ---
-def admin_panel():
-    st.title("📤 Subida de archivo Excel")
-
-    col1, col2 = st.columns([3, 1])
-
-    with col1:
-        uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
-        if uploaded_file is not None:
-            try:
-                with open(EXCEL_PATH, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-
-                nuevo_hash = calcular_hash_archivo()
-                hash_guardado = cargar_hash_guardado()
-
-                if nuevo_hash != hash_guardado:
-                    guardar_hash_actual(nuevo_hash)
-
-                    ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                    guardar_historial(ahora)
-
-                    enviar_notificacion("Actualización", "La base de datos ha sido actualizada.")
-                    st.success("Archivo cargado y notificación enviada.")
-                else:
-                    st.info("El archivo cargado es igual al anterior. No se envió notificación.")
-
-                # Uso seguro de rerun
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error al guardar archivo: {e}")
-
-    with col2:
-        with st.expander("📅 Historial de actualizaciones"):
-            historial = cargar_historial()
-            if historial:
-                for i, fecha in enumerate(historial[::-1], 1):
-                    st.write(f"{i}. {fecha}")
-            else:
-                st.write("No hay actualizaciones aún.")
-
-    admin_dashboard()
-
-    if st.button("Cerrar sesión"):
-        st.session_state.logged_in = False
-        # Uso seguro de rerun
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            st.rerun()
-
-# --- Panel Usuario ---
-def user_panel():
-    st.title("🔍 Consulta de Estatus")
-
-    if not os.path.exists(EXCEL_PATH):
-        st.info("Esperando que el admin suba un archivo.")
-        return
-
-    # Mostrar última actualización
-    timestamp = os.path.getmtime(EXCEL_PATH)
-    ultima_mod = datetime.datetime.fromtimestamp(timestamp)
-    st.info(f"📅 Última actualización: {ultima_mod.strftime('%d/%m/%Y - %H:%M Hrs.')}")
-
-    try:
-        df = cargar_datos()
-    except Exception as e:
-        st.error(f"Error al leer archivo: {e}")
-        return
-
-    if 'Destino' not in df.columns:
-        st.error("❌ Falta la columna 'Destino'")
-        return
-
-    pedido = st.text_input("Ingresa tu número de destino")
-    if pedido:
-        if len(pedido) < 3:
-            st.info("Escribe al menos 3 caracteres.")
-            return
-
-        columnas = ['Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
-                    'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
-        columnas_validas = [col for col in columnas if col in df.columns]
-
-        resultado = df[df['Destino'].astype(str).str.contains(pedido, case=False)]
-
-        if not resultado.empty:
-            resultado = resultado[columnas_validas].reset_index(drop=True)
-            st.dataframe(resultado.style.set_properties(**{
-                'text-align': 'center'
-            }))
-        else:
-            st.warning("No se encontraron resultados.")
-
-# --- App principal ---
+# ================================
+# MENÚ PRINCIPAL
+# ================================
 def main():
-    pwa_setup()
-    onesignal_web_push_setup()
-    pwa_install_prompt()
+    menu = st.sidebar.selectbox("Menú", ["Usuario", "Admin"])
 
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-
-    menu = st.sidebar.radio("📋 Menú principal", ["Consultar estatus", "Admin Login"])
-
-    if menu == "Consultar estatus":
-        user_panel()
-    elif menu == "Admin Login":
-        if not st.session_state.logged_in:
-            login()
+    if menu == "Admin":
+        usuario = st.text_input("Usuario")
+        contraseña = st.text_input("Contraseña", type="password")
+        if usuario == ADMIN_USER and contraseña == ADMIN_PASS:
+            pagina_admin()
         else:
-            st.success("🛠️ Sesión iniciada como administrador")
-            admin_panel()
+            st.warning("Credenciales incorrectas.")
+    else:
+        pagina_usuario()
 
 if __name__ == "__main__":
     main()
