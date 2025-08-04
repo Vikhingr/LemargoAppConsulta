@@ -5,14 +5,14 @@ import datetime
 import requests
 import matplotlib.pyplot as plt
 
-# --- Cargar secretos ---
+# --- Carga secretos ---
 ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
 ONESIGNAL_REST_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
 ADMIN_USER = st.secrets["ADMIN_USER"]
 ADMIN_PASS = st.secrets["ADMIN_PASS"]
 
 # --- Configuración visual dark ---
-st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide", page_icon="📦")
+st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide")
 st.markdown("""
     <style>
     body, .stApp {
@@ -20,76 +20,37 @@ st.markdown("""
         color: #e0e0e0;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
-    .css-18e3th9 {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
-    }
-    .stTextInput>div>div>input {
-        background-color: #222;
-        color: #e0e0e0;
+    .stTextInput>div>div>input, .stSelectbox>div>div>div {
+        background-color: #1f2937;
+        color: white;
         border-radius: 6px;
-        padding: 8px;
-        border: 1px solid #444;
+        padding: 6px;
     }
     .stButton>button {
-        background-color: #2962ff;
+        background-color: #3b82f6;
         color: white;
         border-radius: 8px;
-        padding: 8px 20px;
         font-weight: 600;
-        transition: background-color 0.3s ease;
+        padding: 8px 16px;
         border: none;
-        margin-top: 10px;
+        transition: background-color 0.3s ease;
     }
     .stButton>button:hover {
-        background-color: #0039cb;
-        cursor: pointer;
-    }
-    .stSelectbox>div>div>div {
-        background-color: #222;
-        color: #e0e0e0;
-        border-radius: 6px;
-    }
-    .css-1aumxhk {
-        background-color: #222 !important;
-        border-radius: 6px !important;
-    }
-    .css-1kyxreq {
-        background-color: #222 !important;
-        border-radius: 6px !important;
-    }
-    .css-1v0mbdj {
-        background-color: #222 !important;
-        border-radius: 6px !important;
-    }
-    .css-1r6slb0 {
-        border-radius: 6px !important;
-    }
-    .stDownloadButton>button {
-        background-color: #4caf50;
-        color: white;
-        border-radius: 8px;
-        padding: 8px 20px;
-        font-weight: 600;
-        margin-top: 10px;
-        border: none;
-    }
-    .stDownloadButton>button:hover {
-        background-color: #357a38;
+        background-color: #2563eb;
         cursor: pointer;
     }
     .stAlert {
-        background-color: #2a2a2a !important;
-        color: #ffa500 !important;
-        border-radius: 8px;
-        padding: 12px;
+        background-color: #333;
+        color: #ddd;
+        border-radius: 6px;
+    }
+    footer {
+        visibility: hidden;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Función para enviar notificaciones OneSignal a un destino ---
+# --- Función para enviar notificación (usado en admin) ---
 def enviar_notificacion(destino, mensaje):
     url = "https://onesignal.com/api/v1/notifications"
     payload = {
@@ -106,11 +67,11 @@ def enviar_notificacion(destino, mensaje):
     try:
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        st.success("✅ Notificación enviada correctamente")
+        st.success("✅ Notificación enviada")
     except Exception as e:
         st.error(f"❌ Error enviando notificación: {e}")
 
-# --- Actualizar base y detectar cambios ---
+# --- Consolida datos y detecta cambios ---
 def actualizar_base(nuevo_df):
     nuevo_df["ID"] = nuevo_df["Destino"] + "_" + nuevo_df["Fecha"].astype(str)
     nuevo_df["Hora de consulta"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -133,225 +94,176 @@ def actualizar_base(nuevo_df):
             viejo_estatus = historico_df.loc[historico_df["ID"] == id_registro, "Estado de atención"].values[0]
             if nuevo_estatus != viejo_estatus:
                 cambios.append((fila["Destino"], viejo_estatus, nuevo_estatus))
-        else:
-            # Nuevo registro sin historial previo
-            cambios.append((fila["Destino"], None, nuevo_estatus))
 
     df_final.to_excel("historico_estatus.xlsx", index=False)
 
     for destino, viejo, nuevo in cambios:
-        if viejo is None:
-            mensaje = f"Tu pedido para destino '{destino}' tiene estatus: '{nuevo}' (nuevo registro)"
-        else:
-            mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'"
+        mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'"
         enviar_notificacion(destino, mensaje)
 
-# --- Estado de suscripción OneSignal en JS (envía mensaje a Streamlit) ---
-SUSCRIPCION_JS = """
-<script>
-window.OneSignal = window.OneSignal || [];
-OneSignal.push(function() {
-    OneSignal.init({
-        appId: "%s",
-        notifyButton: {
-            enable: false
-        }
-    });
-    OneSignal.isPushNotificationsEnabled(function(isEnabled) {
-        if (isEnabled) {
-            OneSignal.getUserId(function(userId) {
-                window.parent.postMessage({type: "onesignal_status", status: "subscribed", userId: userId}, "*");
-            });
-        } else {
-            window.parent.postMessage({type: "onesignal_status", status: "unsubscribed"}, "*");
-        }
-    });
-});
-</script>
-""" % ONESIGNAL_APP_ID
+# --- Sesión admin ---
+if "admin_logged" not in st.session_state:
+    st.session_state.admin_logged = False
 
-# --- Panel Admin ---
-def admin_panel():
-    st.header("🛠️ Panel Administrador")
-    archivo = st.file_uploader("Subir archivo Excel con nuevos datos", type=["xlsx"])
-    if archivo is not None:
-        with open("nuevo_datos.xlsx", "wb") as f:
-            f.write(archivo.getbuffer())
-        st.success("Archivo cargado correctamente.")
+def login_panel():
+    col1, col2 = st.columns([1,3])
+    with col1:
+        st.markdown("### 🔐 Admin Login")
+        user = st.text_input("Usuario", key="user_login")
+        password = st.text_input("Contraseña", type="password", key="pass_login")
+        if st.button("Entrar"):
+            if user == ADMIN_USER and password == ADMIN_PASS:
+                st.session_state.admin_logged = True
+                st.experimental_rerun()
+            else:
+                st.error("❌ Credenciales incorrectas")
+    return col2
 
-    if st.button("Actualizar Base con nuevo archivo"):
-        if os.path.exists("nuevo_datos.xlsx"):
+def admin_section(col):
+    with col:
+        st.markdown("### 📤 Subir archivo nuevo_datos.xlsx")
+        archivo = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
+        if archivo:
+            with open("nuevo_datos.xlsx", "wb") as f:
+                f.write(archivo.getbuffer())
+            st.success("Archivo cargado correctamente")
+
+        if st.button("Actualizar Base"):
             try:
                 df_nuevo = pd.read_excel("nuevo_datos.xlsx")
                 actualizar_base(df_nuevo)
-                st.success("Base actualizada y notificaciones enviadas.")
+                st.success("Base actualizada y cambios notificados")
             except Exception as e:
-                st.error(f"Error al actualizar base: {e}")
-        else:
-            st.warning("No hay archivo nuevo_datos.xlsx cargado.")
+                st.error(f"Error al actualizar: {str(e)}")
 
-    # Mostrar historial básico
-    if os.path.exists("historico_estatus.xlsx"):
-        st.markdown("### Vista previa del histórico")
-        try:
-            df_hist = pd.read_excel("historico_estatus.xlsx")
-            st.dataframe(df_hist.tail(10))
-        except:
-            st.warning("No se pudo cargar el histórico para vista previa.")
-    else:
-        st.info("Aún no hay histórico creado.")
-
-# --- Función para controlar suscripción via JS en usuario ---
-def suscripcion_usuario(destino):
-    st.markdown(f"""
-    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-    <script>
-    window.OneSignal = window.OneSignal || [];
-    OneSignal.push(function() {{
-        OneSignal.init({{
-            appId: "{ONESIGNAL_APP_ID}",
-            notifyButton: {{
-                enable: false
-            }}
-        }});
-    }});
-
-    const destino = "{destino}";
-
-    function suscribir() {{
-        OneSignal.push(function() {{
-            OneSignal.sendTag("destino", destino).then(() => {{
-                alert("Suscripción al destino '" + destino + "' exitosa.");
-                window.location.reload();
-            }});
-        }});
-    }}
-
-    function cancelarSuscripcion() {{
-        OneSignal.push(function() {{
-            OneSignal.deleteTag("destino").then(() => {{
-                alert("Suscripción cancelada.");
-                window.location.reload();
-            }});
-        }});
-    }}
-
-    // Comprobar estado actual de suscripción
-    OneSignal.push(function() {{
-        OneSignal.getTags().then(function(tags) {{
-            if(tags.destino === destino) {{
-                document.getElementById("estadoSuscripcion").innerText = "🔔 Suscrito a: " + destino;
-                document.getElementById("btnSuscribir").style.display = "none";
-                document.getElementById("btnCancelar").style.display = "inline-block";
-            }} else {{
-                document.getElementById("estadoSuscripcion").innerText = "🔕 No suscrito";
-                document.getElementById("btnSuscribir").style.display = "inline-block";
-                document.getElementById("btnCancelar").style.display = "none";
-            }}
-        }});
-    }});
-    </script>
-
-    <div style="margin-top:10px; margin-bottom:10px;">
-        <span id="estadoSuscripcion" style="font-weight: 600;"></span><br>
-        <button id="btnSuscribir" onclick="suscribir()" style="background-color:#2962ff; color:white; border:none; padding:8px 18px; border-radius:6px; cursor:pointer;">Suscribirme</button>
-        <button id="btnCancelar" onclick="cancelarSuscripcion()" style="background-color:#b00020; color:white; border:none; padding:8px 18px; border-radius:6px; cursor:pointer; display:none;">Cancelar Suscripción</button>
-    </div>
-    """, unsafe_allow_html=True)
-
-# --- Panel Usuario ---
-def user_panel():
-    st.header("🔍 Consulta de Estatus de Pedidos")
-
+# --- Sección usuario ---
+def user_section():
+    st.markdown("## 🔎 Consulta de Pedido")
     if not os.path.exists("historico_estatus.xlsx"):
         st.warning("Aún no hay datos disponibles. Espera a que el administrador cargue la base.")
         return
 
-    try:
-        df_hist = pd.read_excel("historico_estatus.xlsx")
-    except Exception as e:
-        st.error(f"Error al cargar datos: {e}")
-        return
+    df_hist = pd.read_excel("historico_estatus.xlsx")
+    destinos = sorted(df_hist["Destino"].unique())
 
-    # Búsqueda texto libre de destino (min 3 caracteres)
-    busqueda = st.text_input("Busca tu destino por texto (mínimo 3 caracteres)")
-    destinos_disponibles = sorted(df_hist["Destino"].dropna().unique())
+    # Buscador exacto (sin dropdown múltiple)
+    destino_input = st.text_input("Ingresa tu número de destino exacto")
 
-    df_filtrado = pd.DataFrame()
-    destino_seleccionado = None
-
-    if len(busqueda) >= 3:
-        df_filtrado = df_hist[df_hist["Destino"].str.contains(busqueda, case=False, na=False)]
-        if df_filtrado.empty:
-            st.info("No se encontró ningún destino con ese texto.")
+    if destino_input:
+        if destino_input not in destinos:
+            st.error("Destino no encontrado. Verifica el número ingresado.")
             return
 
-        # Mostrar destinos filtrados para que el usuario confirme
-        opciones = sorted(df_filtrado["Destino"].unique())
-        destino_seleccionado = st.selectbox("Selecciona tu destino de la lista", opciones)
-
-        # Filtrar por destino seleccionado
-        df_filtrado = df_filtrado[df_filtrado["Destino"] == destino_seleccionado]
+        df_destino = df_hist[df_hist["Destino"] == destino_input]
 
         # Consulta avanzada por fecha
-        fechas = sorted(df_filtrado["Fecha"].dropna().unique())
-        fecha_seleccionada = st.selectbox("Selecciona una fecha", fechas)
+        fechas = sorted(df_destino["Fecha"].unique())
+        fecha_sel = st.selectbox("Selecciona una fecha", fechas)
+        df_filtrado = df_destino[df_destino["Fecha"] == fecha_sel]
 
-        df_filtrado_fecha = df_filtrado[df_filtrado["Fecha"] == fecha_seleccionada]
+        st.dataframe(df_filtrado.style.set_properties(**{"text-align": "center"}))
 
-        st.markdown(f"### Resultados para destino: **{destino_seleccionado}** - fecha: **{fecha_seleccionada}**")
-        st.dataframe(df_filtrado_fecha.reset_index(drop=True))
+        # Botón exportar CSV
+        csv_data = df_filtrado.to_csv(index=False).encode()
+        st.download_button("📥 Descargar reporte CSV", data=csv_data, file_name=f"reporte_{destino_input}_{fecha_sel}.csv")
 
-        # Botón descargar CSV
-        csv_data = df_filtrado_fecha.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Descargar reporte CSV", data=csv_data, file_name=f"reporte_{destino_seleccionado}_{fecha_seleccionada}.csv")
-
-        # Gráfica historial de estatus apilado
-        fig, ax = plt.subplots(figsize=(10, 5))
-        df_dest = df_filtrado.groupby(["Fecha", "Estado de atención"]).size().unstack(fill_value=0)
-        df_dest.plot(kind="bar", stacked=True, ax=ax, colormap='tab20')
-        ax.set_title(f"Histórico estatus pedidos para {destino_seleccionado}")
-        ax.set_xlabel("Fecha")
+        # Gráfica historial estatus
+        fig, ax = plt.subplots(figsize=(8,4))
+        df_destino.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0).plot(
+            kind="bar", stacked=True, ax=ax, colormap='tab20'
+        )
+        ax.set_title("Historial de estatus por fecha")
         ax.set_ylabel("Cantidad")
+        ax.set_xlabel("Fecha")
         plt.xticks(rotation=45)
         plt.tight_layout()
         st.pyplot(fig)
 
-        # Suscripción OneSignal con control de botones y estado
-        suscripcion_usuario(destino_seleccionado)
+        # Explicación suscripción
+        st.markdown("""
+            <div style="background-color:#1f2937; padding:15px; border-radius:8px; margin-top:15px;">
+                <b>Suscripción a notificaciones:</b><br>
+                Puedes suscribirte para recibir notificaciones automáticas cada vez que cambie el estatus de tu pedido para este destino.<br>
+                Al suscribirte, se te pedirá permiso para enviar notificaciones.<br>
+                Puedes cancelar la suscripción en cualquier momento con el botón que aparece abajo.
+            </div>
+        """, unsafe_allow_html=True)
 
-    else:
-        st.info("Escribe al menos 3 caracteres para buscar tu destino.")
+        # Botones suscribir / cancelar suscripción con JS + OneSignal
+        st.markdown(f"""
+            <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+            <script>
+                window.OneSignal = window.OneSignal || [];
+                OneSignal.push(function() {{
+                    OneSignal.init({{
+                        appId: "{ONESIGNAL_APP_ID}",
+                    }});
+                }});
 
-# --- Login simple admin ---
-def login_panel():
-    st.sidebar.title("🔐 Admin Login")
+                function updateSubscriptionStatus() {{
+                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
+                        const btnSubscribe = document.getElementById('btnSubscribe');
+                        const btnUnsubscribe = document.getElementById('btnUnsubscribe');
+                        const statusMsg = document.getElementById('statusMsg');
+                        if (isEnabled) {{
+                            btnSubscribe.style.display = 'none';
+                            btnUnsubscribe.style.display = 'inline-block';
+                            statusMsg.textContent = '📲 Estás suscrito a las notificaciones para destino: {destino_input}';
+                        }} else {{
+                            btnSubscribe.style.display = 'inline-block';
+                            btnUnsubscribe.style.display = 'none';
+                            statusMsg.textContent = '❌ No estás suscrito a notificaciones para este destino.';
+                        }}
+                    }});
+                }}
+
+                function subscribe() {{
+                    OneSignal.push(function() {{
+                        OneSignal.showSlidedownPrompt().then(function() {{
+                            OneSignal.sendTag("destino", "{destino_input}").then(function() {{
+                                updateSubscriptionStatus();
+                            }});
+                        }});
+                    }});
+                }}
+
+                function unsubscribe() {{
+                    OneSignal.push(function() {{
+                        OneSignal.deleteTag("destino").then(function() {{
+                            updateSubscriptionStatus();
+                        }});
+                    }});
+                }}
+
+                document.addEventListener("DOMContentLoaded", function() {{
+                    updateSubscriptionStatus();
+                }});
+            </script>
+
+            <div style="margin-top:10px;">
+                <button id="btnSubscribe" onclick="subscribe()" style="background:#2563eb; color:white; border:none; border-radius:6px; padding:8px 16px; font-weight:bold; cursor:pointer;">
+                    🔔 Suscribirse a notificaciones
+                </button>
+                <button id="btnUnsubscribe" onclick="unsubscribe()" style="background:#ef4444; color:white; border:none; border-radius:6px; padding:8px 16px; font-weight:bold; cursor:pointer; display:none;">
+                    🔕 Cancelar suscripción
+                </button>
+                <p id="statusMsg" style="margin-top:8px; font-weight:bold;"></p>
+            </div>
+        """, unsafe_allow_html=True)
+
+# --- MAIN ---
+def main():
+    st.title("📦 Seguimiento de Pedidos")
+
     if "admin_logged" not in st.session_state:
         st.session_state.admin_logged = False
-    if not st.session_state.admin_logged:
-        user = st.sidebar.text_input("Usuario", key="user_login")
-        password = st.sidebar.text_input("Contraseña", type="password", key="pass_login")
-        if st.sidebar.button("Entrar"):
-            if user == ADMIN_USER and password == ADMIN_PASS:
-                st.session_state.admin_logged = True
-                st.sidebar.success("✔️ Acceso concedido")
-                st.experimental_rerun()
-            else:
-                st.sidebar.error("❌ Credenciales incorrectas")
-    else:
-        if st.sidebar.button("Cerrar sesión"):
-            st.session_state.admin_logged = False
-            st.experimental_rerun()
 
-# --- Main ---
-def main():
-    st.title("📦 Sistema de Seguimiento de Pedidos")
-    login_panel()
-
-    if "admin_logged" in st.session_state and st.session_state.admin_logged:
-        admin_panel()
+    if st.session_state.admin_logged:
+        col = login_panel()
+        admin_section(col)
     else:
-        user_panel()
+        login_panel()
+        user_section()
 
 if __name__ == "__main__":
     main()
