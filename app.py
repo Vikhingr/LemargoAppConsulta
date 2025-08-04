@@ -2,160 +2,161 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
-from io import BytesIO
-import matplotlib.pyplot as plt
 import requests
-import altair as alt
-import base64
-import json
+import matplotlib.pyplot as plt
 
-# Configuración inicial
-st.set_page_config(page_title="Lemargo Pedidos", layout="wide", initial_sidebar_state="expanded")
-
-# Estilo moderno en modo oscuro
-st.markdown("""
-    <style>
-    body {
-        background-color: #121212;
-        color: #ffffff;
-    }
-    .stApp {
-        background-color: #121212;
-    }
-    .css-18ni7ap.e8zbici2 {
-        background-color: #1e1e1e;
-    }
-    .css-1cpxqw2.edgvbvh3 {
-        background-color: #1e1e1e;
-    }
-    .stButton>button {
-        background-color: #0A84FF;
-        color: white;
-        border-radius: 10px;
-        height: 3em;
-    }
-    .stTextInput>div>div>input {
-        background-color: #2c2c2c;
-        color: white;
-    }
-    .stSelectbox>div>div>div>div {
-        background-color: #2c2c2c;
-        color: white;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# Leer variables del secrets.toml
+# Cargar secretos
 ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
 ONESIGNAL_REST_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
 ADMIN_USER = st.secrets["ADMIN_USER"]
 ADMIN_PASS = st.secrets["ADMIN_PASS"]
 
-# Función para enviar notificación
-def enviar_notificacion(titulo, mensaje):
-    cabeceras = {
+# Configuración visual
+st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide")
+st.markdown("""
+    <style>
+    body {
+        background-color: #111827;
+        color: #e5e7eb;
+    }
+    .stApp {
+        background-color: #111827;
+    }
+    .stTextInput>div>div>input {
+        background-color: #1f2937;
+        color: white;
+    }
+    .stSelectbox>div>div>div {
+        background-color: #1f2937;
+        color: white;
+    }
+    .stButton>button {
+        background-color: #2563eb;
+        color: white;
+        border-radius: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Función para enviar notificaciones
+def enviar_notificacion(destino, mensaje):
+    url = "https://onesignal.com/api/v1/notifications"
+    payload = {
+        "app_id": ONESIGNAL_APP_ID,
+        "included_segments": ["Subscribed Users"],
+        "filters": [{"field": "tag", "key": "destino", "relation": "=", "value": destino}],
+        "contents": {"en": mensaje}
+    }
+    headers = {
         "Content-Type": "application/json",
         "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
     }
-    payload = {
-        "app_id": ONESIGNAL_APP_ID,
-        "included_segments": ["All"],
-        "headings": {"en": titulo},
-        "contents": {"en": mensaje}
-    }
-    requests.post("https://onesignal.com/api/v1/notifications", headers=cabeceras, data=json.dumps(payload))
+    requests.post(url, json=payload, headers=headers)
 
-# Cargar archivo histórico
-def cargar_historico():
+# Consolidación de datos
+def actualizar_base(nuevo_df):
+    nuevo_df["ID"] = nuevo_df["Destino"] + "_" + nuevo_df["Fecha"].astype(str)
+    nuevo_df["Hora de consulta"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nuevo_df["Fuente"] = "Carga manual"
+
     if os.path.exists("historico_estatus.xlsx"):
-        return pd.read_excel("historico_estatus.xlsx")
+        historico_df = pd.read_excel("historico_estatus.xlsx")
     else:
-        return pd.DataFrame()
+        historico_df = pd.DataFrame(columns=nuevo_df.columns)
 
-# Guardar histórico actualizado
-def guardar_historico(df):
-    df.to_excel("historico_estatus.xlsx", index=False)
+    historico_df["ID"] = historico_df["Destino"] + "_" + historico_df["Fecha"].astype(str)
+    df_combinado = pd.concat([historico_df, nuevo_df], ignore_index=True)
+    df_final = df_combinado.drop_duplicates(subset="ID", keep="last")
 
-# Comparar y detectar cambios
-def detectar_cambios(df_nuevo, df_hist):
-    df_nuevo["ID"] = df_nuevo["Destino"].astype(str) + "_" + df_nuevo["Fecha"].astype(str)
-    df_hist["ID"] = df_hist["Destino"].astype(str) + "_" + df_hist["Fecha"].astype(str)
-    df_merged = pd.merge(df_nuevo, df_hist, on="ID", suffixes=("_nuevo", "_hist"), how="left")
-    cambios = df_merged[df_merged["Estado de atención_nuevo"] != df_merged["Estado de atención_hist"]]
-    return cambios
+    cambios = []
+    for _, fila in nuevo_df.iterrows():
+        id_registro = fila["ID"]
+        nuevo_estatus = fila["Estado de atención"]
+        if id_registro in historico_df["ID"].values:
+            viejo_estatus = historico_df.loc[historico_df["ID"] == id_registro, "Estado de atención"].values[0]
+            if nuevo_estatus != viejo_estatus:
+                cambios.append((fila["Destino"], viejo_estatus, nuevo_estatus))
 
-# Interfaz lateral (login)
-with st.sidebar:
-    st.markdown("### Acceso Admin")
-    usuario = st.text_input("Usuario", value="", label_visibility="collapsed", placeholder="Usuario")
-    password = st.text_input("Contraseña", type="password", label_visibility="collapsed", placeholder="Contraseña")
-    entrar = st.button("Entrar")
+    df_final.to_excel("historico_estatus.xlsx", index=False)
 
-# Validar acceso administrador
-admin_autenticado = (usuario == ADMIN_USER and password == ADMIN_PASS)
+    for destino, viejo, nuevo in cambios:
+        mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'"
+        enviar_notificacion(destino, mensaje)
 
-if admin_autenticado:
-    st.success("Acceso como Administrador ✅")
-    st.header("Panel de Administración")
+# Sesión de login
+if "admin_logged" not in st.session_state:
+    st.session_state.admin_logged = False
 
-    archivo_cargado = st.file_uploader("Selecciona el archivo nuevo", type=["xlsx"])
+col1, col2 = st.columns([1, 3])
 
-    if archivo_cargado:
-        st.success("Archivo cargado con éxito ✅")
-        if st.button("Actualizar base"):
-            df_nuevo = pd.read_excel(archivo_cargado)
-            df_nuevo["Hora de consulta"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            df_nuevo["Fuente"] = "Carga admin"
-
-            df_hist = cargar_historico()
-
-            if not df_hist.empty:
-                cambios = detectar_cambios(df_nuevo, df_hist)
-                if not cambios.empty:
-                    enviar_notificacion("📦 Pedido actualizado", f"{len(cambios)} pedidos cambiaron de estatus")
-            else:
-                cambios = df_nuevo  # primera carga
-
-            df_final = pd.concat([df_hist, df_nuevo], ignore_index=True)
-            df_final = df_final.drop_duplicates(subset=["Destino", "Fecha"], keep="last")
-            guardar_historico(df_final)
-            st.success("Base actualizada correctamente")
-
-        st.info("Después de subir el archivo, da clic en **Actualizar base**.")
-else:
-    # Modo usuario
-    st.header("Consulta de pedidos por destino")
-    df_hist = cargar_historico()
-
-    if df_hist.empty:
-        st.warning("Aún no hay datos disponibles. El administrador debe cargar el archivo.")
-    else:
-        destinos = sorted(df_hist["Destino"].unique())
-        destino_seleccionado = st.selectbox("Selecciona tu destino", destinos)
-
-        df_destino = df_hist[df_hist["Destino"] == destino_seleccionado]
-
-        if not df_destino.empty:
-            st.subheader("Historial del destino seleccionado")
-            st.dataframe(df_destino.sort_values("Fecha", ascending=False), use_container_width=True)
-
-            # Gráfica por estatus
-            st.subheader("Gráfica de estatus en el tiempo")
-            fig, ax = plt.subplots(figsize=(10, 4))
-            try:
-                df_graf = df_destino.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0)
-                df_graf.plot(kind="bar", stacked=True, ax=ax)
-                ax.set_ylabel("Pedidos")
-                ax.set_xlabel("Fecha")
-                st.pyplot(fig)
-            except:
-                st.info("No hay datos suficientes para graficar.")
-
-            # Exportar
-            output = BytesIO()
-            df_destino.to_excel(output, index=False)
-            b64 = base64.b64encode(output.getvalue()).decode()
-            href = f'<a href="data:application/octet-stream;base64,{b64}" download="reporte_destino.xlsx">📥 Descargar reporte</a>'
-            st.markdown(href, unsafe_allow_html=True)
+with col1:
+    st.markdown("## Admin Login")
+    user = st.text_input("Usuario", key="user_login")
+    password = st.text_input("Contraseña", type="password", key="pass_login")
+    if st.button("Entrar"):
+        if user == ADMIN_USER and password == ADMIN_PASS:
+            st.session_state.admin_logged = True
+            st.success("Acceso concedido")
         else:
-            st.warning("No se encontraron datos para el destino seleccionado.")
+            st.error("Credenciales incorrectas")
+
+# Sección Admin
+if st.session_state.admin_logged:
+    with col2:
+        st.markdown("## Sección Administrador")
+        archivo = st.file_uploader("Subir archivo nuevo_datos.xlsx", type=["xlsx"])
+        if archivo:
+            with open("nuevo_datos.xlsx", "wb") as f:
+                f.write(archivo.getbuffer())
+            st.success("Archivo cargado correctamente")
+
+        if st.button("Actualizar Base"):
+            try:
+                df_nuevo = pd.read_excel("nuevo_datos.xlsx")
+                actualizar_base(df_nuevo)
+                st.success("Base actualizada y cambios notificados")
+            except Exception as e:
+                st.error(f"Error al actualizar: {str(e)}")
+
+# Sección Usuario
+else:
+    st.markdown("## Consulta de Pedido")
+    try:
+        df_hist = pd.read_excel("historico_estatus.xlsx")
+        destinos = sorted(df_hist["Destino"].unique())
+        destino_sel = st.selectbox("Selecciona tu destino", destinos)
+        df_destino = df_hist[df_hist["Destino"] == destino_sel]
+
+        # Consulta avanzada
+        fechas = sorted(df_destino["Fecha"].unique())
+        fecha_sel = st.selectbox("Selecciona una fecha", fechas)
+        df_filtrado = df_destino[df_destino["Fecha"] == fecha_sel]
+
+        st.dataframe(df_filtrado)
+
+        # Exportar
+        st.download_button("Descargar reporte", data=df_filtrado.to_csv(index=False).encode(), file_name=f"reporte_{destino_sel}.csv")
+
+        # Historial visual
+        fig, ax = plt.subplots()
+        df_destino.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0).plot(kind="bar", stacked=True, ax=ax)
+        ax.set_title("Historial de estatus por fecha")
+        ax.set_ylabel("Cantidad")
+        st.pyplot(fig)
+
+        # Script OneSignal para suscripción por destino
+        st.markdown(f"""
+        <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+        <script>
+            window.OneSignal = window.OneSignal || [];
+            OneSignal.push(function() {{
+                OneSignal.init({{
+                    appId: "{ONESIGNAL_APP_ID}",
+                }});
+                OneSignal.sendTag("destino", "{destino_sel}");
+            }});
+        </script>
+        """, unsafe_allow_html=True)
+
+    except FileNotFoundError:
+        st.warning("Aún no hay datos disponibles. Espera a que el administrador cargue la base.")
