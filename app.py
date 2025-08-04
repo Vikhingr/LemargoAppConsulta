@@ -22,11 +22,7 @@ st.markdown("""
     .stApp {
         background-color: #111827;
     }
-    .stTextInput>div>div>input {
-        background-color: #1f2937;
-        color: white;
-    }
-    .stSelectbox>div>div>div {
+    .stTextInput>div>div>input, .stSelectbox>div>div>div, .stDateInput input {
         background-color: #1f2937;
         color: white;
     }
@@ -34,6 +30,15 @@ st.markdown("""
         background-color: #2563eb;
         color: white;
         border-radius: 8px;
+    }
+    .stDownloadButton>button {
+        background-color: #16a34a;
+        color: white;
+        border-radius: 8px;
+    }
+    .stDataFrame {
+        background-color: #1f2937;
+        color: white;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -83,7 +88,7 @@ def actualizar_base(nuevo_df):
         mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'"
         enviar_notificacion(destino, mensaje)
 
-# Sesión de login
+# Login del administrador
 if "admin_logged" not in st.session_state:
     st.session_state.admin_logged = False
 
@@ -100,7 +105,7 @@ with col1:
         else:
             st.error("Credenciales incorrectas")
 
-# Sección Admin
+# Sección Administrador
 if st.session_state.admin_logged:
     with col2:
         st.markdown("## Sección Administrador")
@@ -116,7 +121,7 @@ if st.session_state.admin_logged:
                 actualizar_base(df_nuevo)
                 st.success("Base actualizada y cambios notificados")
             except Exception as e:
-                st.error(f"Error al actualizar: {str(e)}")
+                st.warning("No se pudo actualizar la base. Verifica el archivo cargado.")
 
 # Sección Usuario
 else:
@@ -125,26 +130,28 @@ else:
         df_hist = pd.read_excel("historico_estatus.xlsx")
         destinos = sorted(df_hist["Destino"].unique())
         destino_sel = st.selectbox("Selecciona tu destino", destinos)
+
         df_destino = df_hist[df_hist["Destino"] == destino_sel]
 
-        # Consulta avanzada
         fechas = sorted(df_destino["Fecha"].unique())
         fecha_sel = st.selectbox("Selecciona una fecha", fechas)
+
         df_filtrado = df_destino[df_destino["Fecha"] == fecha_sel]
 
         st.dataframe(df_filtrado)
 
-        # Exportar
-        st.download_button("Descargar reporte", data=df_filtrado.to_csv(index=False).encode(), file_name=f"reporte_{destino_sel}.csv")
+        st.download_button("Descargar reporte filtrado", data=df_filtrado.to_csv(index=False).encode(), file_name=f"reporte_{destino_sel}_{fecha_sel}.csv")
 
-        # Historial visual
+        # Gráfica historial visual
+        st.markdown("### Historial visual de estatus")
         fig, ax = plt.subplots()
         df_destino.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0).plot(kind="bar", stacked=True, ax=ax)
         ax.set_title("Historial de estatus por fecha")
         ax.set_ylabel("Cantidad")
+        ax.legend(title="Estatus", bbox_to_anchor=(1.05, 1), loc='upper left')
         st.pyplot(fig)
 
-        # Script OneSignal para suscripción por destino
+        # Script OneSignal para suscripción personalizada
         st.markdown(f"""
         <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
         <script>
@@ -152,6 +159,9 @@ else:
             OneSignal.push(function() {{
                 OneSignal.init({{
                     appId: "{ONESIGNAL_APP_ID}",
+                    notifyButton: {{
+                        enable: true,
+                    }},
                 }});
                 OneSignal.sendTag("destino", "{destino_sel}");
             }});
