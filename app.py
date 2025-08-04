@@ -1,177 +1,162 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
-import matplotlib.pyplot as plt
-from io import BytesIO
+import datetime
 import requests
-import json
+import matplotlib.pyplot as plt
 
-# OneSignal config desde secrets.toml
+# Cargar secretos
 ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
 ONESIGNAL_REST_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
+ADMIN_USER = st.secrets["ADMIN_USER"]
+ADMIN_PASS = st.secrets["ADMIN_PASS"]
 
-# Estilos modernos (modo oscuro)
+# Configuración visual
 st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide")
-hide_st_style = """
+st.markdown("""
     <style>
-    body { background-color: #0e1117; color: white; }
-    .stApp { background-color: #0e1117; }
-    .css-1d391kg { background-color: #1e222d; }
-    .css-1v0mbdj, .css-1d391kg, .css-1c7y2kd { border: none !important; }
-    </style>
-"""
-st.markdown(hide_st_style, unsafe_allow_html=True)
-
-# Archivos
-HISTORICO_PATH = "historico_estatus.xlsx"
-NUEVO_PATH = "nuevos_datos.xlsx"
-
-# Crear histórico si no existe
-if not os.path.exists(HISTORICO_PATH):
-    pd.DataFrame(columns=[
-        'Fecha', 'Folio Pedido', 'Centro de entrega', 'Destino', 'Producto',
-        'Presentación', 'Turno', 'Medio', 'Clave', 'Transportista',
-        'Capacidad programada (Litros)', 'Fecha y hora estimada',
-        'Fecha y hora de facturación', 'Estado de atención',
-        'Fecha Actualización', 'Hora Actualización', 'Fuente',
-        'Estatus Anterior', 'Estatus Actual'
-    ]).to_excel(HISTORICO_PATH, index=False)
-
-# Función para enviar notificación
-def enviar_notificacion(destino, mensaje):
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
+    body {
+        background-color: #111827;
+        color: #e5e7eb;
     }
+    .stApp {
+        background-color: #111827;
+    }
+    .stTextInput>div>div>input {
+        background-color: #1f2937;
+        color: white;
+    }
+    .stSelectbox>div>div>div {
+        background-color: #1f2937;
+        color: white;
+    }
+    .stButton>button {
+        background-color: #2563eb;
+        color: white;
+        border-radius: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Función para enviar notificaciones
+def enviar_notificacion(destino, mensaje):
+    url = "https://onesignal.com/api/v1/notifications"
     payload = {
         "app_id": ONESIGNAL_APP_ID,
         "included_segments": ["Subscribed Users"],
         "filters": [{"field": "tag", "key": "destino", "relation": "=", "value": destino}],
-        "headings": {"en": "Actualización de pedido"},
         "contents": {"en": mensaje}
     }
-    requests.post("https://onesignal.com/api/v1/notifications", headers=headers, json=payload)
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
+    }
+    requests.post(url, json=payload, headers=headers)
 
-# Función para comparar archivos y actualizar histórico
-def actualizar_historico():
-    if not os.path.exists(NUEVO_PATH):
-        st.warning("No se encontró el archivo nuevos_datos.xlsx")
-        return pd.read_excel(HISTORICO_PATH)
+# Consolidación de datos
+def actualizar_base(nuevo_df):
+    nuevo_df["ID"] = nuevo_df["Destino"] + "_" + nuevo_df["Fecha"].astype(str)
+    nuevo_df["Hora de consulta"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nuevo_df["Fuente"] = "Carga manual"
 
-    nuevo = pd.read_excel(NUEVO_PATH)
-    historico = pd.read_excel(HISTORICO_PATH)
+    if os.path.exists("historico_estatus.xlsx"):
+        historico_df = pd.read_excel("historico_estatus.xlsx")
+    else:
+        historico_df = pd.DataFrame(columns=nuevo_df.columns)
 
-    ahora = datetime.now()
-    fecha = ahora.date().strftime("%Y-%m-%d")
-    hora = ahora.strftime("%H:%M:%S")
+    historico_df["ID"] = historico_df["Destino"] + "_" + historico_df["Fecha"].astype(str)
+    df_combinado = pd.concat([historico_df, nuevo_df], ignore_index=True)
+    df_final = df_combinado.drop_duplicates(subset="ID", keep="last")
 
     cambios = []
-    for _, fila in nuevo.iterrows():
-        clave = f"{fila['Destino']}_{fila['Fecha']}"
-        match = historico[
-            (historico['Destino'] == fila['Destino']) &
-            (historico['Fecha'] == fila['Fecha'])
-        ]
-        if match.empty:
-            fila_h = fila.copy()
-            fila_h["Fecha Actualización"] = fecha
-            fila_h["Hora Actualización"] = hora
-            fila_h["Fuente"] = "Carga Nueva"
-            fila_h["Estatus Anterior"] = ""
-            fila_h["Estatus Actual"] = fila['Estado de atención']
-            historico = historico.append(fila_h, ignore_index=True)
-        else:
-            estatus_ant = match.iloc[-1]["Estado de atención"]
-            if estatus_ant != fila['Estado de atención']:
-                fila_h = fila.copy()
-                fila_h["Fecha Actualización"] = fecha
-                fila_h["Hora Actualización"] = hora
-                fila_h["Fuente"] = "Cambio"
-                fila_h["Estatus Anterior"] = estatus_ant
-                fila_h["Estatus Actual"] = fila['Estado de atención']
-                historico = historico.append(fila_h, ignore_index=True)
-                cambios.append((fila['Destino'], f"Pedido actualizado: {estatus_ant} → {fila['Estado de atención']}"))
+    for _, fila in nuevo_df.iterrows():
+        id_registro = fila["ID"]
+        nuevo_estatus = fila["Estado de atención"]
+        if id_registro in historico_df["ID"].values:
+            viejo_estatus = historico_df.loc[historico_df["ID"] == id_registro, "Estado de atención"].values[0]
+            if nuevo_estatus != viejo_estatus:
+                cambios.append((fila["Destino"], viejo_estatus, nuevo_estatus))
 
-    if cambios:
-        for destino, mensaje in cambios:
-            enviar_notificacion(destino, mensaje)
+    df_final.to_excel("historico_estatus.xlsx", index=False)
 
-    historico.to_excel(HISTORICO_PATH, index=False)
-    return historico
+    for destino, viejo, nuevo in cambios:
+        mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'"
+        enviar_notificacion(destino, mensaje)
 
-# Interfaz de login discreta
-col1, col2 = st.columns([1, 4])
+# Sesión de login
+if "admin_logged" not in st.session_state:
+    st.session_state.admin_logged = False
+
+col1, col2 = st.columns([1, 3])
+
 with col1:
-    st.markdown("### Admin Login")
-    with st.form("login_form"):
-        username = st.text_input("Usuario", type="default")
-        password = st.text_input("Contraseña", type="password")
-        submit = st.form_submit_button("Entrar")
-
-    is_admin = False
-    if submit:
-        if username == st.secrets["ADMIN_USER"] and password == st.secrets["ADMIN_PASS"]:
-            is_admin = True
+    st.markdown("## Admin Login")
+    user = st.text_input("Usuario", key="user_login")
+    password = st.text_input("Contraseña", type="password", key="pass_login")
+    if st.button("Entrar"):
+        if user == ADMIN_USER and password == ADMIN_PASS:
+            st.session_state.admin_logged = True
+            st.success("Acceso concedido")
         else:
             st.error("Credenciales incorrectas")
 
-with col2:
-    st.title("📦 Seguimiento de Pedidos")
+# Sección Admin
+if st.session_state.admin_logged:
+    with col2:
+        st.markdown("## Sección Administrador")
+        archivo = st.file_uploader("Subir archivo nuevo_datos.xlsx", type=["xlsx"])
+        if archivo:
+            with open("nuevo_datos.xlsx", "wb") as f:
+                f.write(archivo.getbuffer())
+            st.success("Archivo cargado correctamente")
 
-    df = actualizar_historico()
+        if st.button("Actualizar Base"):
+            try:
+                df_nuevo = pd.read_excel("nuevo_datos.xlsx")
+                actualizar_base(df_nuevo)
+                st.success("Base actualizada y cambios notificados")
+            except Exception as e:
+                st.error(f"Error al actualizar: {str(e)}")
 
-    if is_admin:
-        st.success("Modo administrador")
+# Sección Usuario
+else:
+    st.markdown("## Consulta de Pedido")
+    try:
+        df_hist = pd.read_excel("historico_estatus.xlsx")
+        destinos = sorted(df_hist["Destino"].unique())
+        destino_sel = st.selectbox("Selecciona tu destino", destinos)
+        df_destino = df_hist[df_hist["Destino"] == destino_sel]
 
-        with st.expander("📁 Subir archivo nuevos_datos.xlsx"):
-            archivo = st.file_uploader("Subir archivo Excel", type="xlsx")
-            if archivo:
-                with open(NUEVO_PATH, "wb") as f:
-                    f.write(archivo.read())
-                st.success("Archivo cargado, se actualizará automáticamente al recargar.")
+        # Consulta avanzada
+        fechas = sorted(df_destino["Fecha"].unique())
+        fecha_sel = st.selectbox("Selecciona una fecha", fechas)
+        df_filtrado = df_destino[df_destino["Fecha"] == fecha_sel]
 
-        with st.expander("📊 Ver datos históricos"):
-            st.dataframe(df)
+        st.dataframe(df_filtrado)
 
-        with st.expander("📤 Exportar por destino o fecha"):
-            col_f1, col_f2 = st.columns(2)
-            destino_f = col_f1.text_input("Destino")
-            fecha_f = col_f2.date_input("Fecha")
+        # Exportar
+        st.download_button("Descargar reporte", data=df_filtrado.to_csv(index=False).encode(), file_name=f"reporte_{destino_sel}.csv")
 
-            df_filtrado = df.copy()
-            if destino_f:
-                df_filtrado = df_filtrado[df_filtrado['Destino'].str.contains(destino_f, case=False)]
-            if fecha_f:
-                df_filtrado = df_filtrado[df_filtrado['Fecha'] == pd.to_datetime(fecha_f)]
+        # Historial visual
+        fig, ax = plt.subplots()
+        df_destino.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0).plot(kind="bar", stacked=True, ax=ax)
+        ax.set_title("Historial de estatus por fecha")
+        ax.set_ylabel("Cantidad")
+        st.pyplot(fig)
 
-            st.dataframe(df_filtrado)
+        # Script OneSignal para suscripción por destino
+        st.markdown(f"""
+        <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+        <script>
+            window.OneSignal = window.OneSignal || [];
+            OneSignal.push(function() {{
+                OneSignal.init({{
+                    appId: "{ONESIGNAL_APP_ID}",
+                }});
+                OneSignal.sendTag("destino", "{destino_sel}");
+            }});
+        </script>
+        """, unsafe_allow_html=True)
 
-            def convertir_excel(df):
-                buffer = BytesIO()
-                df.to_excel(buffer, index=False)
-                buffer.seek(0)
-                return buffer
-
-            st.download_button("Descargar Excel", convertir_excel(df_filtrado), file_name="reporte_filtrado.xlsx")
-
-    else:
-        with st.expander("🔎 Consulta por destino y fecha"):
-            destino_u = st.text_input("Destino")
-            fecha_u = st.date_input("Fecha del pedido")
-            df_user = df.copy()
-            if destino_u:
-                df_user = df_user[df_user['Destino'].str.contains(destino_u, case=False)]
-            if fecha_u:
-                df_user = df_user[df_user['Fecha'] == pd.to_datetime(fecha_u)]
-
-            st.dataframe(df_user)
-
-            if not df_user.empty:
-                st.markdown("#### Evolución del estatus")
-                fig, ax = plt.subplots()
-                df_user.groupby('Fecha Actualización')['Estado de atención'].last().plot(marker='o', ax=ax)
-                ax.set_ylabel("Estatus")
-                ax.set_xlabel("Fecha")
-                ax.grid(True)
-                st.pyplot(fig)
+    except FileNotFoundError:
+        st.warning("Aún no hay datos disponibles. Espera a que el administrador cargue la base.")
