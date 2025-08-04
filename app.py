@@ -336,7 +336,7 @@ def admin_dashboard():
         ).properties(width=600)
         st.altair_chart(chart_destino)
 
-# Mostrar gráfico histórico por destino
+        # Mostrar gráfico histórico por destino
     df_hist = cargar_historico()
     if df_hist.empty:
         st.info("No hay datos históricos para mostrar.")
