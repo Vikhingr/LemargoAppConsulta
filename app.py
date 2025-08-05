@@ -356,7 +356,8 @@ def admin_dashboard():
 # --- Lógica de notificaciones más robusta ---
 def check_and_notify_on_change(old_df, new_df):
     try:
-        st.warning("⚠️ Iniciando detección de cambios...")
+        # AÑADIDO: Agregar mensaje de inicio al historial
+        st.session_state.messages.append({'type': 'warning', 'text': "⚠️ Iniciando detección de cambios..."})
         
         # Estandarizar las columnas clave de ambos DataFrames de forma estricta
         def clean_dataframe(df):
@@ -374,12 +375,12 @@ def check_and_notify_on_change(old_df, new_df):
         old_df_clean = clean_dataframe(old_df)
         new_df_clean = clean_dataframe(new_df)
         
-        st.info(f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}")
-        st.info(f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}")
+        # AÑADIDO: Agregar diagnósticos al historial
+        st.session_state.messages.append({'type': 'info', 'text': f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}"})
+        st.session_state.messages.append({'type': 'info', 'text': f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}"})
 
         # --- LÓGICA CON CLAVE DE COMPARACIÓN MÁS ROBUSTA ---
         cambios_detectados = []
-        old_data_dict = {}
 
         # CAMBIO CLAVE: La clave de comparación ahora incluye 'Folio pedido'
         comparison_key_columns = ['Destino', 'Folio pedido', 'Producto', 'Fecha']
@@ -403,16 +404,14 @@ def check_and_notify_on_change(old_df, new_df):
                             'Estado de atención_new': new_status
                         })
             except KeyError:
-                # Esto manejaría el caso de que la fila exista en el nuevo pero no en el viejo
                 pass
 
         cambios_df = pd.DataFrame(cambios_detectados)
         
         if not cambios_df.empty:
-            st.header("🔍 Cambios de estatus detectados")
-            st.info(f"Se detectaron {len(cambios_df)} cambios de estatus. Aquí está la tabla de cambios:")
-            st.dataframe(cambios_df)
-
+            # AÑADIDO: Agregar mensaje de cambios al historial
+            st.session_state.messages.append({'type': 'info', 'text': f"🔍 Se detectaron {len(cambios_df)} cambios de estatus."})
+            
             st.warning("🔔 Enviando notificaciones...")
             
             for _, row in cambios_df.iterrows():
@@ -425,10 +424,12 @@ def check_and_notify_on_change(old_df, new_df):
                 mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
                 enviar_notificacion_por_destino(destino_num, titulo, mensaje)
         else:
-            st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
+            # AÑADIDO: Agregar mensaje de no cambios al historial
+            st.session_state.messages.append({'type': 'success', 'text': "✅ No se detectaron cambios en el estado de los destinos."})
             
     except Exception as e:
-        st.error(f"Error en la lógica de notificación: {e}")
+        # AÑADIDO: Agregar mensaje de error al historial
+        st.session_state.messages.append({'type': 'error', 'text': f"❌ Error en la lógica de notificación: {e}"})
 
 # --- Nueva función de administrador ---
 def admin_panel():
@@ -438,27 +439,6 @@ def admin_panel():
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    # Mostrar los mensajes persistentes al inicio del panel
-    for msg_type, msg in st.session_state.messages:
-        if msg_type == 'success':
-            st.success(msg)
-        elif msg_type == 'error':
-            st.error(msg)
-        elif msg_type == 'warning':
-            st.warning(msg)
-        elif msg_type == 'info':
-            st.info(msg)
-
-    # Botón para limpiar los mensajes
-    if st.session_state.messages and st.button("Limpiar mensajes"):
-        st.session_state.messages = []
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            st.rerun()
-            
-    st.markdown("---")
-
     col1, col2 = st.columns([3, 1])
 
     if 'last_df' not in st.session_state:
@@ -467,8 +447,12 @@ def admin_panel():
             try:
                 st.session_state.last_df = cargar_datos()
             except Exception as e:
-                st.session_state.messages.append(('error', f"Error al cargar la base de datos histórica: {e}"))
+                st.session_state.messages.append({'type': 'error', 'text': f"Error al cargar la base de datos histórica: {e}"})
                 st.session_state.last_df = pd.DataFrame()
+                try:
+                    st.experimental_rerun()
+                except AttributeError:
+                    st.rerun()
 
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
@@ -498,7 +482,8 @@ def admin_panel():
                 st.dataframe(df_nuevo.head())
 
                 if st.button("Cargar y actualizar base histórica"):
-                    st.session_state.messages = [] # Limpiar mensajes anteriores
+                    st.session_state.messages = [] # Limpiar mensajes anteriores para la nueva acción
+                    
                     df_historico_old = st.session_state.last_df.copy()
 
                     if not df_historico_old.empty:
@@ -511,7 +496,8 @@ def admin_panel():
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
-                    st.session_state.messages.append(('success', "✅ Base de datos histórica actualizada. El archivo subido es la nueva base."))
+                    st.session_state.messages.append({'type': 'success', 'text': "✅ Base de datos histórica actualizada. El archivo subido es la nueva base."})
+
                     st.cache_data.clear()
 
                     try:
@@ -520,7 +506,11 @@ def admin_panel():
                         st.rerun()
 
             except Exception as e:
-                st.session_state.messages.append(('error', f"❌ Error al procesar archivo: {e}"))
+                st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
+                try:
+                    st.experimental_rerun()
+                except AttributeError:
+                    st.rerun()
                 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
@@ -535,6 +525,30 @@ def admin_panel():
             else:
                 st.write("No hay actualizaciones aún.")
     
+    # --- Historial de Mensajes Persistente ---
+    st.markdown("---")
+    st.subheader("📜 Historial de acciones")
+    if st.session_state.messages:
+        for i, msg_data in enumerate(st.session_state.messages):
+            if msg_data['type'] == 'success':
+                st.success(f"{i+1}. {msg_data['text']}")
+            elif msg_data['type'] == 'error':
+                st.error(f"{i+1}. {msg_data['text']}")
+            elif msg_data['type'] == 'warning':
+                st.warning(f"{i+1}. {msg_data['text']}")
+            elif msg_data['type'] == 'info':
+                st.info(f"{i+1}. {msg_data['text']}")
+        if st.button("Limpiar historial"):
+            st.session_state.messages = []
+            try:
+                st.experimental_rerun()
+            except AttributeError:
+                st.rerun()
+    else:
+        st.info("No hay acciones recientes.")
+    # --- Fin del Historial de Mensajes ---
+
+
     admin_dashboard()
     
     if st.button("Cerrar sesión"):
@@ -557,12 +571,13 @@ def admin_panel():
             if os.path.exists(archivo):
                 os.remove(archivo)
                 borrados += 1
-                st.session_state.messages.append(('success', f"🗑️ Archivo '{archivo}' eliminado."))
+                st.session_state.messages.append({'type': 'success', 'text': f"🗑️ Archivo '{archivo}' eliminado."})
             else:
-                st.session_state.messages.append(('info', f"Archivo '{archivo}' no encontrado."))
+                st.session_state.messages.append({'type': 'info', 'text': f"Archivo '{archivo}' no encontrado."})
         
-        st.session_state.messages.append(('warning', f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo."))
-        st.session_state.messages.append(('info', "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."))
+        st.session_state.messages.append({'type': 'warning', 'text': f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo."})
+        st.session_state.messages.append({'type': 'info', 'text': "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."})
+        
         st.cache_data.clear()
         
         try:
