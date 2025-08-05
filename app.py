@@ -416,19 +416,27 @@ def check_and_notify_on_change(old_df, new_df):
         st.error(f"Error en la lógica de notificación: {e}")
 
 
+# --- NUEVA FUNCIÓN DE ADMINISTRADOR MÁS ROBUSTA ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
     col1, col2 = st.columns([3, 1])
+    
+    # Inicializar el estado de la sesión si no existe
+    if 'last_df' not in st.session_state:
+        st.session_state.last_df = pd.DataFrame()
+        if os.path.exists(HISTORIAL_EXCEL_PATH):
+            st.session_state.last_df = pd.read_excel(HISTORIAL_EXCEL_PATH)
 
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
-
+        
+        # Mostrar tamaño del archivo histórico si existe
         if os.path.exists(HISTORIAL_EXCEL_PATH):
             file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
             st.markdown(f"💾 **Tamaño actual de la base de datos:** {file_size_mb:.2f} MB")
-
+            
         if uploaded_file is not None:
             try:
                 df_nuevo = pd.read_excel(uploaded_file)
@@ -436,47 +444,36 @@ def admin_panel():
                 st.dataframe(df_nuevo.head())
 
                 if st.button("Cargar y actualizar base histórica"):
+                    
+                    df_historico_old = st.session_state.last_df.copy()
 
-                    df_historico_old = pd.DataFrame()
-                    if os.path.exists(HISTORIAL_EXCEL_PATH):
-                        df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
-
-                    # --- CLAVE: Limpiamos la base histórica ANTES de comparar ---
+                    # Si el historial antiguo no está vacío, comparamos
                     if not df_historico_old.empty:
-                        df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.strftime('%Y-%m-%d')
-                        df_historico_old['Destino'] = df_historico_old['Destino'].astype(str).str.strip().str.upper()
-                        if 'Producto' in df_historico_old.columns:
-                            df_historico_old['Producto'] = df_historico_old['Producto'].astype(str).str.strip().str.upper()
-                            df_historico_old_clean = df_historico_old.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='last')
-                        else:
-                            df_historico_old_clean = df_historico_old.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='last')
-                    else:
-                        df_historico_old_clean = pd.DataFrame()
+                        check_and_notify_on_change(df_historico_old, df_nuevo)
 
-                    # Verificamos los cambios entre el histórico limpio y el archivo nuevo
-                    if not df_historico_old_clean.empty:
-                        check_and_notify_on_change(df_historico_old_clean, df_nuevo)
-
-                    # Concatenamos la base histórica (sin limpiar) y el nuevo archivo
-                    # para luego limpiar todo el conjunto y guardar una base perfecta
+                    # Concatenamos la base histórica y el nuevo archivo
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
 
+                    # Normalizar y limpiar la base de datos completa antes de guardar
                     if 'Producto' in combined_df.columns:
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha']).dt.strftime('%Y-%m-%d')
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
                     else:
-                        st.warning("La columna 'Producto' no se encontró. No se puede evitar la duplicación de productos.")
+                        st.warning("La columna 'Producto' no se encontró.")
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha']).dt.strftime('%Y-%m-%d')
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
 
-                    # Volvemos a convertir la fecha a formato datetime para que funcione el dashboard
+                    # Volvemos a convertir la fecha a formato datetime para el dashboard
                     combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
 
                     # Guardamos la nueva base acumulada y limpia
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    
+                    # Actualizamos el estado de la sesión con el nuevo DataFrame
+                    st.session_state.last_df = combined_df.copy()
 
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
@@ -491,7 +488,7 @@ def admin_panel():
 
             except Exception as e:
                 st.error(f"Error al procesar archivo: {e}")
-
+                
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
             historial = cargar_historial()
@@ -504,17 +501,17 @@ def admin_panel():
                         st.write(f"{i}. (fecha inválida)")
             else:
                 st.write("No hay actualizaciones aún.")
-
+    
     admin_dashboard()
-
+    
     if st.button("Cerrar sesión"):
         st.session_state.logged_in = False
+        st.session_state.last_df = pd.DataFrame()
         try:
             st.experimental_rerun()
         except AttributeError:
             st.rerun()
-
-    # --- INICIO DEL CÓDIGO TEMPORAL PARA REINICIAR LA BASE DE DATOS ---
+            
     st.markdown("---")
     st.header("⚠️ Opciones de mantenimiento")
     if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
@@ -538,7 +535,6 @@ def admin_panel():
             st.experimental_rerun()
         except AttributeError:
             st.rerun()
-    # --- FIN DEL CÓDIGO TEMPORAL ---
 
 
 # --- Función para mostrar fichas visuales (SIN el botón) ---
