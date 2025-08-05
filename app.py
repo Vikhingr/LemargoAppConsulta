@@ -361,15 +361,16 @@ def user_panel():
         st.info("Esperando que el admin suba un archivo.")
         return
 
-historial = cargar_historial()
-if historial:
-    try:
-        ultima_fecha = datetime.datetime.fromisoformat(historial[-1])
-        st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')}")
-    except Exception:
-        st.info("📅 Última actualización: (fecha inválida)")
-else:
-    st.info("📅 Última actualización: (sin datos)")
+    # Mostrar última actualización con historial
+    historial = cargar_historial()
+    if historial:
+        try:
+            ultima_fecha = datetime.datetime.fromisoformat(historial[-1])
+            st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')}")
+        except Exception:
+            st.info("📅 Última actualización: (fecha inválida)")
+    else:
+        st.info("📅 Última actualización: (sin datos)")
 
     try:
         df = cargar_datos()
