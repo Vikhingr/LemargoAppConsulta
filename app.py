@@ -282,6 +282,76 @@ def admin_panel():
         except AttributeError:
             st.rerun()
 
+# --- Nueva función para mostrar fichas visuales ---
+def mostrar_fichas_visuales(df_resultado):
+    # Mapas de colores e íconos
+    colores = {
+        "PROGRAMADO": "#007bff",   # azul
+        "FACTURADO": "#28a745",    # verde
+        "CANCELADO": "#dc3545",    # rojo
+        "CARGANDO": "#ffc107"      # amarillo
+    }
+    iconos = {
+        "PROGRAMADO": "📅",
+        "FACTURADO": "✅",
+        "CANCELADO": "❌",
+        "CARGANDO": "⏳"
+    }
+
+    for _, fila in df_resultado.iterrows():
+        estado = str(fila.get("Estado de atención", "")).upper()
+        color = None
+        icono = ""
+
+        if "CANCELADO" in estado:
+            color = colores["CANCELADO"]
+            icono = iconos["CANCELADO"]
+        elif estado == "PROGRAMADO":
+            color = colores["PROGRAMADO"]
+            icono = iconos["PROGRAMADO"]
+        elif estado == "FACTURADO":
+            color = colores["FACTURADO"]
+            icono = iconos["FACTURADO"]
+        elif estado == "CARGANDO":
+            color = colores["CARGANDO"]
+            icono = iconos["CARGANDO"]
+        else:
+            color = "#6c757d"  # gris por defecto
+            icono = "ℹ️"
+
+        ficha_html = f"""
+        <div style="
+            background-color: {color};
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        ">
+            <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
+            <div style="font-size: 14px; margin-top: 4px;">
+                <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
+                <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
+                <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
+        """
+
+        fecha_estimada = fila.get('Fecha y hora estimada', None)
+        fecha_facturacion = fila.get('Fecha y hora de facturación', None)
+
+        if pd.notnull(fecha_estimada):
+            ficha_html += f"<b>Fecha Estimada:</b> {fecha_estimada}<br>"
+        elif pd.notnull(fecha_facturacion):
+            ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
+
+        ficha_html += f"""
+                <b>Estado:</b> {estado}
+            </div>
+        </div>
+        """
+
+        st.markdown(ficha_html, unsafe_allow_html=True)
+
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
@@ -316,12 +386,10 @@ def user_panel():
         resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
-            resultado = resultado[columnas_validas].reset_index(drop=True)
-            st.dataframe(resultado.style.set_properties(**{
-                'text-align': 'center'
-            }))
-        else:
-            st.warning("No se encontraron resultados.")
+    resultado = resultado[columnas_validas].reset_index(drop=True)
+    mostrar_fichas_visuales(resultado)
+else:
+    st.warning("No se encontraron resultados.")
 
 
 # --- App principal ---
