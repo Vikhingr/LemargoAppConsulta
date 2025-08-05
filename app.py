@@ -20,7 +20,6 @@ ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
 # --- Rutas y archivos ---
-# El archivo que se leerá para las búsquedas ahora es el histórico
 HISTORIAL_EXCEL_PATH = "historial_general.xlsx"
 HISTORIAL_PATH = "historial_actualizaciones.json"
 HASH_PATH = "hash_actual.txt"
@@ -115,7 +114,6 @@ def enviar_notificacion_por_destino(destino, titulo, mensaje):
 
     payload = {
         "app_id": APP_ID,
-        # Filtra por el tag que crearemos con el ID del destino
         "filters": [
             {"field": "tag", "key": "destino_id", "relation": "=", "value": str(destino)}
         ],
@@ -215,7 +213,7 @@ def admin_dashboard():
     st.subheader("📊 Visualización y análisis de datos")
 
     columnas_disponibles = df.columns.tolist()
-    
+
     if 'Fecha' in columnas_disponibles:
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
     else:
@@ -240,7 +238,7 @@ def admin_dashboard():
         else:
             estados_seleccionados = []
             st.warning("Columna 'Estado de atención' no encontrada.")
-    
+
     with col3:
         fechas = sorted(df['Fecha'].unique().tolist(), reverse=True)
         if fechas:
@@ -268,7 +266,7 @@ def admin_dashboard():
         st.markdown("#### Conteo por Estado de atención")
         conteo_estado = df_filtrado['Estado de atención'].value_counts().reset_index()
         conteo_estado.columns = ['Estado', 'Cantidad']
-        
+
         chart_estado = alt.Chart(conteo_estado).mark_bar(
             cornerRadiusTopLeft=3,
             cornerRadiusTopRight=3,
@@ -285,7 +283,7 @@ def admin_dashboard():
         st.markdown("#### Conteo por Destino")
         conteo_destino = df_filtrado['Destino'].value_counts().reset_index()
         conteo_destino.columns = ['Destino', 'Cantidad']
-        
+
         chart_destino = alt.Chart(conteo_destino).mark_bar(
             cornerRadiusTopLeft=3,
             cornerRadiusTopRight=3,
@@ -309,7 +307,7 @@ def admin_dashboard():
 
     # Aseguramos que las columnas necesarias existan en el DataFrame completo
     if 'Destino' in df.columns and 'Estado de atención' in df.columns:
-        
+
         # 1. TOP 10 FACTURADOS
         df_historico_facturados = df[df['Estado de atención'].str.contains('FACTURADO', case=False, na=False)]
         if not df_historico_facturados.empty:
@@ -328,7 +326,7 @@ def admin_dashboard():
                 title='Top 10 Facturados Acumulado'
             )
             st.altair_chart(chart_top_facturados, use_container_width=True)
-            
+
         # 2. TOP 10 CANCELADOS
         df_historico_cancelados = df[df['Estado de atención'].str.contains('CANCELADO', case=False, na=False)]
         if not df_historico_cancelados.empty:
@@ -375,38 +373,44 @@ def check_and_notify_on_change(old_df, new_df):
         old_df['Destino'] = old_df['Destino'].astype(str).str.strip().str.upper()
         old_df['Producto'] = old_df['Producto'].astype(str).str.strip().str.upper()
         old_df['Estado de atención'] = old_df['Estado de atención'].astype(str).str.strip().str.upper()
-        
+
         new_df['Destino'] = new_df['Destino'].astype(str).str.strip().str.upper()
         new_df['Producto'] = new_df['Producto'].astype(str).str.strip().str.upper()
         new_df['Estado de atención'] = new_df['Estado de atención'].astype(str).str.strip().str.upper()
 
-        old_df['Fecha'] = pd.to_datetime(old_df['Fecha'])
-        new_df['Fecha'] = pd.to_datetime(new_df['Fecha'])
-        
-        # Se fusionan los DataFrames usando la combinación de 'Destino', 'Fecha' y 'Producto'
+        old_df['Fecha'] = pd.to_datetime(old_df['Fecha']).dt.date
+        new_df['Fecha'] = pd.to_datetime(new_df['Fecha']).dt.date
+
+        # Aseguramos que ambos DataFrames no tengan duplicados antes de la fusión
+        # Esto evita que la comparación genere resultados incorrectos
+        key_columns = ['Destino', 'Fecha', 'Producto']
+        old_df_clean = old_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=key_columns, keep='last')
+        new_df_clean = new_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=key_columns, keep='last')
+
+        # Se fusionan los DataFrames para encontrar los cambios de estado
         merged_df = pd.merge(
-            old_df,
-            new_df,
-            on=['Destino', 'Fecha', 'Producto'],
+            old_df_clean,
+            new_df_clean,
+            on=key_columns,
             how='inner',
             suffixes=('_old', '_new')
         )
 
         cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
-        
+
         if not cambios_df.empty:
             st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
             for _, row in cambios_df.iterrows():
                 destino = row['Destino']
                 estado_anterior = row['Estado de atención_old']
                 estado_nuevo = row['Estado de atención_new']
-                
+
                 # Usar el número de destino para la notificación
                 destino_num = str(destino).split('-')[0].strip()
-                
+
                 titulo = f"Actualización en Destino: {destino}"
                 mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
-                
+
                 enviar_notificacion_por_destino(destino_num, titulo, mensaje)
         else:
             st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
@@ -422,7 +426,7 @@ def admin_panel():
 
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
-        
+
         if os.path.exists(HISTORIAL_EXCEL_PATH):
             file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
@@ -435,36 +439,23 @@ def admin_panel():
                 st.dataframe(df_nuevo.head())
 
                 if st.button("Cargar y actualizar base histórica"):
+                    
+                    # --- Lógica de reemplazo completo de la base histórica ---
+                    df_historico_old = pd.DataFrame()
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
-                    else:
-                        df_historico_old = pd.DataFrame()
 
+                    # Si hay un histórico, verificamos los cambios antes de reemplazar
                     if not df_historico_old.empty:
-                        df_nuevo['Fecha'] = pd.to_datetime(df_nuevo['Fecha']).dt.date
-                        df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.date
                         check_and_notify_on_change(df_historico_old, df_nuevo)
-                    
-                    combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
-                    
-                    if 'Producto' in combined_df.columns:
-                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
-                        # Limpiamos antes de eliminar duplicados para evitar errores por espacios o mayúsculas
-                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
-                        combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
-                        combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
-                    else:
-                        st.warning("La columna 'Producto' no se encontró. No se puede evitar la duplicación de productos.")
-                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
-                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
-                        combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
 
-                    combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
-                    
+                    # Reemplazamos la base histórica por completo con el nuevo archivo
+                    df_nuevo.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
-                    
-                    st.success("✅ Base de datos histórica actualizada.")
+
+                    st.success("✅ Base de datos histórica reemplazada con éxito.")
                     st.cache_data.clear()
 
                     try:
@@ -532,13 +523,15 @@ def mostrar_fichas_visuales(df_resultado):
             icono = "ℹ️"
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
-        
+
         destino = fila.get('Destino', '')
         fecha_general = fila.get('Fecha', None)
-        
+
         if pd.notnull(fecha_general) and isinstance(fecha_general, datetime.datetime):
             fecha_general = fecha_general.strftime('%d/%m/%Y')
-        
+        else:
+             fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
+
         ficha_html = f"""
         <div style="
             background-color: {color_rgba};
@@ -554,10 +547,10 @@ def mostrar_fichas_visuales(df_resultado):
             <div style="font-size: 18px;">{icono} <b>{destino}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
         """
-        
+
         if pd.notnull(fecha_general):
             ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
-                
+
         ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
@@ -567,7 +560,7 @@ def mostrar_fichas_visuales(df_resultado):
         fecha_estimada = fila.get('Fecha y hora estimada', None)
         if pd.notnull(fecha_estimada):
             ficha_html += f"<b>Fecha Estimada:</b> {fecha_estimada}<br>"
-        
+
         fecha_facturacion = fila.get('Fecha y hora de facturación', None)
         if pd.notnull(fecha_facturacion):
             ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
@@ -620,21 +613,19 @@ def user_panel():
         columnas_validas = [col for col in columnas if col in df.columns]
 
         df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
-        # Limpiamos los datos del DataFrame para que coincidan con la búsqueda del usuario
         df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
 
         resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
             destino_para_suscripcion = resultado['Destino'].iloc[0]
-            # --- CORREGIDO: obtener el número de destino para la suscripción ---
             destino_num_para_suscripcion = str(destino_para_suscripcion).split('-')[0].strip().upper()
 
             descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_num_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
             st.info(descripcion)
-            
+
             if st.button(f"🔔 Suscribirme al Destino {destino_num_para_suscripcion}", key=f"sub_{destino_num_para_suscripcion}"):
-                
+
                 st.success(f"¡Suscripción exitosa! Ahora recibirás notificaciones para el Destino {destino_num_para_suscripcion}.")
 
                 st.markdown(f"""
@@ -649,7 +640,6 @@ def user_panel():
                                 console.log('Suscrito al destino:', tags);
                             }});
                         }} else {{
-                            // Si no tiene permiso, volvemos a pedirlo explícitamente
                             OneSignal.showSlidedownPrompt();
                             alert('Por favor, activa las notificaciones para poder suscribirte.');
                         }}
@@ -661,9 +651,9 @@ def user_panel():
                     st.experimental_rerun()
                 except AttributeError:
                     st.rerun()
-            
+
             resultado = resultado[columnas_validas].sort_values(by='Fecha', ascending=False)
-            
+
             for fecha, grupo in resultado.groupby('Fecha'):
                 fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
                 st.subheader(f"📅 Detalles del día: {fecha_formateada}")
