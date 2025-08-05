@@ -434,6 +434,31 @@ def check_and_notify_on_change(old_df, new_df):
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
+    # Inicializar la lista de mensajes con un timestamp
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+
+    # --- Lógica para mostrar y borrar mensajes después de 10 segundos ---
+    messages_to_keep = []
+    current_time = datetime.datetime.now()
+    
+    for msg_type, msg, timestamp in st.session_state.messages:
+        if (current_time - timestamp).total_seconds() < 20:
+            messages_to_keep.append((msg_type, msg, timestamp))
+            if msg_type == 'success':
+                st.success(msg)
+            elif msg_type == 'error':
+                st.error(msg)
+            elif msg_type == 'warning':
+                st.warning(msg)
+            elif msg_type == 'info':
+                st.info(msg)
+    
+    st.session_state.messages = messages_to_keep
+    # --- Fin de la lógica de mensajes ---
+
+    st.markdown("---")
+
     col1, col2 = st.columns([3, 1])
 
     if 'last_df' not in st.session_state:
@@ -442,7 +467,7 @@ def admin_panel():
             try:
                 st.session_state.last_df = cargar_datos()
             except Exception as e:
-                st.error(f"Error al cargar la base de datos histórica: {e}")
+                st.session_state.messages.append(('error', f"Error al cargar la base de datos histórica: {e}", datetime.datetime.now()))
                 st.session_state.last_df = pd.DataFrame()
 
     with col1:
@@ -464,6 +489,7 @@ def admin_panel():
                         'Destino': str,
                         'Fecha': 'datetime64[ns]',
                         'Producto': str,
+                        'Folio pedido': str,
                         'Estado de atención': str
                     }
                 )
@@ -472,20 +498,20 @@ def admin_panel():
                 st.dataframe(df_nuevo.head())
 
                 if st.button("Cargar y actualizar base histórica"):
-                    
+                    st.session_state.messages = [] # Limpiar mensajes anteriores
                     df_historico_old = st.session_state.last_df.copy()
 
                     if not df_historico_old.empty:
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # --- NUEVA LÓGICA: GUARDAR EN JSON ---
+                    # --- GUARDAR EN JSON ---
                     guardar_datos(df_nuevo)
                     st.session_state.last_df = df_nuevo.copy()
 
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
-                    st.success("✅ Base de datos histórica actualizada. El archivo subido es la nueva base.")
+                    st.session_state.messages.append(('success', "✅ Base de datos histórica actualizada. El archivo subido es la nueva base.", datetime.datetime.now()))
                     st.cache_data.clear()
 
                     try:
@@ -494,7 +520,7 @@ def admin_panel():
                         st.rerun()
 
             except Exception as e:
-                st.error(f"Error al procesar archivo: {e}")
+                st.session_state.messages.append(('error', f"❌ Error al procesar archivo: {e}", datetime.datetime.now()))
                 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
@@ -514,6 +540,7 @@ def admin_panel():
     if st.button("Cerrar sesión"):
         st.session_state.logged_in = False
         st.session_state.last_df = pd.DataFrame()
+        st.session_state.messages = []
         try:
             st.experimental_rerun()
         except AttributeError:
@@ -530,12 +557,12 @@ def admin_panel():
             if os.path.exists(archivo):
                 os.remove(archivo)
                 borrados += 1
-                st.success(f"🗑️ Archivo '{archivo}' eliminado.")
+                st.session_state.messages.append(('success', f"🗑️ Archivo '{archivo}' eliminado.", datetime.datetime.now()))
             else:
-                st.info(f"Archivo '{archivo}' no encontrado.")
+                st.session_state.messages.append(('info', f"Archivo '{archivo}' no encontrado.", datetime.datetime.now()))
         
-        st.warning(f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo.")
-        st.info("Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio.")
+        st.session_state.messages.append(('warning', f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo.", datetime.datetime.now()))
+        st.session_state.messages.append(('info', "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio.", datetime.datetime.now()))
         st.cache_data.clear()
         
         try:
