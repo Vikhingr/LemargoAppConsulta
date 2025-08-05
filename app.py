@@ -221,7 +221,6 @@ def admin_dashboard():
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
     else:
         st.warning("La columna 'Fecha' no se encontró en el archivo. No se podrá filtrar por fecha.")
-        df_filtrado = df
         return
 
     # --- FILTROS INTERACTIVOS ---
@@ -245,23 +244,15 @@ def admin_dashboard():
             st.warning("Columna 'Estado de atención' no encontrada.")
     
     with col3:
-        fechas = df['Fecha'].unique().tolist()
+        fechas = sorted(df['Fecha'].unique().tolist(), reverse=True)
         if fechas:
-            min_fecha = min(fechas)
-            max_fecha = max(fechas)
-            rango_fechas = st.date_input("Filtrar por rango de fechas", value=(min_fecha, max_fecha), min_value=min_fecha, max_value=max_fecha)
-            
-            if len(rango_fechas) == 2:
-                start_date, end_date = rango_fechas
-                df_filtrado = df[df['Fecha'].between(start_date, end_date)]
-            else:
-                st.warning("Seleccione un rango de fechas.")
-                return
+            fecha_seleccionada = st.selectbox("Selecciona una fecha", options=fechas, format_func=lambda x: x.strftime('%d/%m/%Y'))
         else:
             st.warning("No hay fechas disponibles para filtrar.")
             return
 
-    # Aplicar los filtros de producto y estado
+    # Aplicar los filtros
+    df_filtrado = df[df['Fecha'] == fecha_seleccionada]
     if productos_seleccionados:
         df_filtrado = df_filtrado[df_filtrado['Producto'].isin(productos_seleccionados)]
     if estados_seleccionados:
@@ -273,18 +264,7 @@ def admin_dashboard():
 
     # --- GRÁFICAS Y TABLA ---
 
-    # Gráfica 1: TENDENCIA POR FECHA
-    st.markdown("#### Tendencia de registros por fecha")
-    conteo_fecha = df_filtrado.groupby('Fecha').size().reset_index(name='Cantidad').sort_values('Fecha')
-    chart_fecha = alt.Chart(conteo_fecha).mark_line(point=True).encode(
-        x=alt.X('Fecha', title='Fecha'),
-        y=alt.Y('Cantidad', title='Número de Registros'),
-        tooltip=[alt.Tooltip('Fecha'), 'Cantidad'],
-        color=alt.value("#88d27a")  # Color para la línea
-    ).properties(title='Registros diarios').interactive()
-    st.altair_chart(chart_fecha, use_container_width=True)
-
-    # Gráfica 2: ESTADO DE ATENCIÓN
+    # Gráfica 1: ESTADO DE ATENCIÓN
     if 'Estado de atención' in df_filtrado.columns:
         st.markdown("#### Conteo por Estado de atención")
         conteo_estado = df_filtrado['Estado de atención'].value_counts().reset_index()
@@ -298,10 +278,10 @@ def admin_dashboard():
             x=alt.X('Estado', sort='-y', title='Estado de atención'),
             y=alt.Y('Cantidad', title='Número de registros'),
             tooltip=['Estado', 'Cantidad'],
-        ).properties(width=600, title='Distribución por Estado')
+        ).properties(width=600, title=f'Distribución por Estado en {fecha_seleccionada.strftime("%d/%m/%Y")}')
         st.altair_chart(chart_estado, use_container_width=True)
 
-    # Gráfica 3: CONTEO POR DESTINO
+    # Gráfica 2: CONTEO POR DESTINO
     if 'Destino' in df_filtrado.columns:
         st.markdown("#### Conteo por Destino")
         conteo_destino = df_filtrado['Destino'].value_counts().reset_index()
@@ -315,7 +295,7 @@ def admin_dashboard():
             x=alt.X('Cantidad', title='Número de registros'),
             y=alt.Y('Destino', sort='-x', title='Destino'),
             tooltip=['Destino', 'Cantidad'],
-        ).properties(width=600, title='Conteo de Registros por Destino')
+        ).properties(width=600, title=f'Conteo de Registros por Destino en {fecha_seleccionada.strftime("%d/%m/%Y")}')
         st.altair_chart(chart_destino, use_container_width=True)
 
     # Tabla de datos filtrada
