@@ -20,7 +20,8 @@ ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
 # --- Rutas y archivos ---
-EXCEL_PATH = "archivo_cargado.xlsx"
+# El archivo que se leerá para las búsquedas ahora es el histórico
+HISTORIAL_EXCEL_PATH = "historial_general.xlsx"
 HISTORIAL_PATH = "historial_actualizaciones.json"
 HASH_PATH = "hash_actual.txt"
 
@@ -86,7 +87,6 @@ def pwa_install_prompt():
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
-        // Prompt automático:
         deferredPrompt.prompt();
         deferredPrompt.userChoice.then((choiceResult) => {
           if(choiceResult.outcome === 'accepted'){
@@ -100,8 +100,9 @@ def pwa_install_prompt():
     </script>
     """, unsafe_allow_html=True)
 
-# --- Enviar notificación ---
-def enviar_notificacion(titulo, mensaje):
+
+# --- NUEVA FUNCIÓN: Enviar notificación a un destino específico ---
+def enviar_notificacion_por_destino(destino, titulo, mensaje):
     if not REST_API_KEY or not APP_ID:
         st.error("❌ Claves OneSignal no configuradas correctamente.")
         return
@@ -111,18 +112,23 @@ def enviar_notificacion(titulo, mensaje):
         "Content-Type": "application/json; charset=utf-8",
         "Authorization": f"Basic {REST_API_KEY}"
     }
+
     payload = {
         "app_id": APP_ID,
-        "included_segments": ["All"],
+        # Filtra por el tag que crearemos con el ID del destino
+        "filters": [
+            {"field": "tag", "key": "destino_id", "relation": "=", "value": str(destino)}
+        ],
         "headings": {"en": titulo},
         "contents": {"en": mensaje},
         "ios_sound": "default",
         "android_sound": "default"
     }
+
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        st.success("✅ Notificación enviada")
+        st.success(f"✅ Notificación enviada al destino {destino}")
     except requests.RequestException as e:
         st.error(f"❌ Error al enviar notificación: {e}")
 
@@ -133,7 +139,6 @@ def cargar_historial():
             with open(HISTORIAL_PATH, "r") as f:
                 return json.load(f)
         except Exception:
-            # Si el archivo está corrupto o no se puede leer, se reinicia
             return []
     return []
 
@@ -147,12 +152,12 @@ def guardar_historial(fecha_hora):
         st.error(f"Error guardando historial: {e}")
 
 # --- Hash archivo con SHA256 ---
-def calcular_hash_archivo():
-    if not os.path.exists(EXCEL_PATH):
+def calcular_hash_archivo(path):
+    if not os.path.exists(path):
         return ""
     try:
         hasher = hashlib.sha256()
-        with open(EXCEL_PATH, "rb") as f:
+        with open(path, "rb") as f:
             buf = f.read(65536)
             while len(buf) > 0:
                 hasher.update(buf)
@@ -181,7 +186,9 @@ def cargar_hash_guardado():
 # --- Datos con cache ---
 @st.cache_data(show_spinner=False)
 def cargar_datos():
-    return pd.read_excel(EXCEL_PATH)
+    if os.path.exists(HISTORIAL_EXCEL_PATH):
+        return pd.read_excel(HISTORIAL_EXCEL_PATH)
+    return pd.DataFrame()
 
 # --- Login ---
 def login():
@@ -200,14 +207,9 @@ def login():
 
 # --- Dashboard admin ---
 def admin_dashboard():
-    if not os.path.exists(EXCEL_PATH):
+    df = cargar_datos()
+    if df.empty:
         st.info("Aún no hay archivo cargado.")
-        return
-
-    try:
-        df = cargar_datos()
-    except Exception as e:
-        st.error(f"Error leyendo archivo: {e}")
         return
 
     st.subheader("📊 Visualización de datos")
@@ -232,6 +234,37 @@ def admin_dashboard():
         ).properties(width=600)
         st.altair_chart(chart_destino)
 
+# --- NUEVA FUNCIÓN: Lógica para notificar solo si hay cambios de estado ---
+def check_and_notify_on_change(old_df, new_df):
+    
+    # 1. Combina los dos dataframes para comparar
+    merged_df = pd.merge(
+        old_df, 
+        new_df, 
+        on='Destino', 
+        how='inner', 
+        suffixes=('_old', '_new')
+    )
+
+    # 2. Encuentra los destinos donde el estado ha cambiado
+    cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
+    
+    if not cambios_df.empty:
+        st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
+        for _, row in cambios_df.iterrows():
+            destino = row['Destino']
+            estado_anterior = row['Estado de atención_old']
+            estado_nuevo = row['Estado de atención_new']
+            
+            titulo = f"Actualización en Destino: {destino}"
+            mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
+            
+            # 3. Envía la notificación solo a los usuarios suscritos a este destino
+            enviar_notificacion_por_destino(destino, titulo, mensaje)
+    else:
+        st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
+
+
 # --- Panel Admin ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
@@ -242,37 +275,50 @@ def admin_panel():
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         if uploaded_file is not None:
             try:
-                with open(EXCEL_PATH, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                # Carga el archivo subido
+                df_nuevo = pd.read_excel(uploaded_file)
+                st.write("Vista previa del archivo cargado:")
+                st.dataframe(df_nuevo.head())
 
-                nuevo_hash = calcular_hash_archivo()
-                hash_guardado = cargar_hash_guardado()
+                # Botón para cargar la base
+                if st.button("Cargar y actualizar base histórica"):
+                    # 1. Carga la base histórica existente (si existe)
+                    if os.path.exists(HISTORIAL_EXCEL_PATH):
+                        df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
+                    else:
+                        df_historico_old = pd.DataFrame()
 
-                if nuevo_hash != hash_guardado:
-                    guardar_hash_actual(nuevo_hash)
-
-                    # --- CORRECCIÓN: Se asegura que se guarde el formato correcto ISO ---
+                    # 2. Revisa los cambios y envía notificaciones
+                    if not df_historico_old.empty:
+                        check_and_notify_on_change(df_historico_old, df_nuevo)
+                    
+                    # 3. Combina la información (opcional, podrías solo reemplazar si el archivo es la fuente de la verdad)
+                    # Aquí la lógica asume que el nuevo archivo reemplaza el estado actual, por lo que lo guarda como el nuevo histórico.
+                    df_nuevo.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    
+                    # 4. Actualiza el historial de carga
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
+                    
+                    st.success("✅ Base de datos histórica actualizada.")
+                    
+                    # Limpia la caché para que la consulta de usuario use los datos nuevos
+                    st.cache_data.clear()
 
-                    enviar_notificacion("Actualización", "La base de datos ha sido actualizada.")
-                    st.success("Archivo cargado y notificación enviada.")
-                else:
-                    st.info("El archivo cargado es igual al anterior. No se envió notificación.")
+                    # Uso seguro de rerun
+                    try:
+                        st.experimental_rerun()
+                    except AttributeError:
+                        st.rerun()
 
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
             except Exception as e:
-                st.error(f"Error al guardar archivo: {e}")
+                st.error(f"Error al procesar archivo: {e}")
 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
             historial = cargar_historial()
             if historial:
                 for i, fecha in enumerate(historial[::-1], 1):
-                    # --- CORRECCIÓN: Manejo de errores al mostrar historial ---
                     try:
                         fecha_dt = datetime.datetime.fromisoformat(fecha)
                         st.write(f"{i}. {fecha_dt.strftime('%d/%m/%Y - %H:%M:%S Hrs.')} CDMX")
@@ -290,7 +336,7 @@ def admin_panel():
         except AttributeError:
             st.rerun()
 
-# --- Nueva función para mostrar fichas visuales ---
+# --- Función para mostrar fichas visuales ---
 def mostrar_fichas_visuales(df_resultado):
     colores = {
         "PROGRAMADO": (0, 123, 255),
@@ -325,9 +371,11 @@ def mostrar_fichas_visuales(df_resultado):
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
         
-        fecha_general = fila.get('Fecha', None)
+        # Obtiene el valor de la columna 'Destino'
+        destino = fila.get('Destino', '')
         
-        # Formateamos la fecha si es un objeto datetime
+        # Obtiene el valor de la columna 'Fecha'
+        fecha_general = fila.get('Fecha', None)
         if pd.notnull(fecha_general) and isinstance(fecha_general, datetime.datetime):
             fecha_general = fecha_general.strftime('%d/%m/%Y')
         
@@ -343,7 +391,7 @@ def mostrar_fichas_visuales(df_resultado):
             backdrop-filter: blur(6px);
             -webkit-backdrop-filter: blur(6px);
         ">
-            <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
+            <div style="font-size: 18px;">{icono} <b>{destino}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
         """
         
@@ -370,21 +418,44 @@ def mostrar_fichas_visuales(df_resultado):
         </div>
         """
         st.markdown(ficha_html, unsafe_allow_html=True)
+        
+        # --- NUEVO: Botón de suscripción por destino ---
+        # El botón solo se muestra si el destino tiene un valor
+        if destino and st.button(f"🔔 Suscribirme al Destino {destino}", key=f"sub_{destino}"):
+            # Script para enviar el tag a OneSignal. La clave 'destino_id' debe coincidir con la del payload del admin.
+            st.markdown(f"""
+            <script>
+            window.OneSignal = window.OneSignal || [];
+            OneSignal.push(function() {{
+                OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
+                    if (isEnabled) {{
+                        OneSignal.sendTags({{
+                            destino_id: "{destino}"
+                        }}).then(function(tags) {{
+                            console.log('Suscrito al destino:', tags);
+                            alert('Te has suscrito a las notificaciones del Destino {destino}');
+                        }});
+                    }} else {{
+                        alert('Por favor, activa las notificaciones para poder suscribirte.');
+                        OneSignal.showSlidedownPrompt();
+                    }}
+                }});
+            }});
+            </script>
+            """, unsafe_allow_html=True)
 
 
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
-    if not os.path.exists(EXCEL_PATH):
+    if not os.path.exists(HISTORIAL_EXCEL_PATH):
         st.info("Esperando que el admin suba un archivo.")
         return
 
-# Mostrar última actualización con manejo de formatos de fecha
     historial = cargar_historial()
     if historial:
         ultima_fecha_str = historial[-1]
         try:
-            # --- CORRECCIÓN: Se asegura que el formato sea el correcto con fromisoformat ---
             ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
             ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
             st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
@@ -405,7 +476,7 @@ def user_panel():
 
     pedido = st.text_input("Ingresa tu número de destino")
     if pedido:
-        columnas = ['Fecha','Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
+        columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
@@ -418,7 +489,6 @@ def user_panel():
             mostrar_fichas_visuales(resultado)
         else:
             st.warning("No se encontraron resultados.")
-
 
 # --- App principal ---
 def main():
