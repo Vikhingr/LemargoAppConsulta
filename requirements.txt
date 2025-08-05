@@ -5,5 +5,4 @@ matplotlib
 requests
 streamlit-autorefresh
 altair
-plotly
-python-docx
+python-dotenv
