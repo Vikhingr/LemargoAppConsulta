@@ -378,8 +378,9 @@ def check_and_notify_on_change(old_df, new_df):
         new_df['Producto'] = new_df['Producto'].astype(str).str.strip().str.upper()
         new_df['Estado de atención'] = new_df['Estado de atención'].astype(str).str.strip().str.upper()
 
-        old_df['Fecha'] = pd.to_datetime(old_df['Fecha']).dt.date
-        new_df['Fecha'] = pd.to_datetime(new_df['Fecha']).dt.date
+        # CLAVE: Convertir la fecha a un formato de texto estándar para eliminar la hora
+        old_df['Fecha'] = pd.to_datetime(old_df['Fecha']).dt.strftime('%Y-%m-%d')
+        new_df['Fecha'] = pd.to_datetime(new_df['Fecha']).dt.strftime('%Y-%m-%d')
 
         # Aseguramos que ambos DataFrames no tengan duplicados antes de la fusión
         # Esto evita que la comparación genere resultados incorrectos
@@ -439,21 +440,20 @@ def admin_panel():
                 st.dataframe(df_nuevo.head())
 
                 if st.button("Cargar y actualizar base histórica"):
-                    
+
                     df_historico_old = pd.DataFrame()
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
-                    
+
                     # Verificamos los cambios antes de fusionar
                     if not df_historico_old.empty:
                         check_and_notify_on_change(df_historico_old, df_nuevo)
-                    
+
                     # Concatenamos y eliminamos duplicados para limpiar la base
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
 
                     if 'Producto' in combined_df.columns:
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
-                        # Limpiamos antes de eliminar duplicados para evitar errores por espacios o mayúsculas
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
@@ -462,7 +462,7 @@ def admin_panel():
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
-                    
+
                     # Guardamos la nueva base acumulada y limpia
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
 
@@ -542,11 +542,9 @@ def mostrar_fichas_visuales(df_resultado):
         fecha_general = fila.get('Fecha', None)
 
         if pd.notnull(fecha_general):
-            # Asegurar que el formato de fecha sea correcto para el display
             try:
                 fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
             except (ValueError, TypeError):
-                # En caso de error, mostramos el valor tal cual
                 fecha_general = str(fecha_general)
 
         ficha_html = f"""
