@@ -361,14 +361,22 @@ def user_panel():
         st.info("Esperando que el admin suba un archivo.")
         return
 
-    # Mostrar última actualización con historial
+# Mostrar última actualización con manejo de formatos de fecha
     historial = cargar_historial()
     if historial:
+        ultima_fecha_str = historial[-1]
         try:
-            ultima_fecha = datetime.datetime.fromisoformat(historial[-1])
+            # Intentar ISO 8601
+            ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
+        except ValueError:
+            try:
+                # Intentar formato dd/mm/yyyy HH:MM:SS
+                ultima_fecha = datetime.datetime.strptime(ultima_fecha_str, "%d/%m/%Y %H:%M:%S")
+            except Exception:
+                st.info("📅 Última actualización: (fecha inválida)")
+                ultima_fecha = None
+        if ultima_fecha:
             st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')}")
-        except Exception:
-            st.info("📅 Última actualización: (fecha inválida)")
     else:
         st.info("📅 Última actualización: (sin datos)")
 
