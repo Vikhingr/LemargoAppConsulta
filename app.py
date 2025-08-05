@@ -265,6 +265,7 @@ def check_and_notify_on_change(old_df, new_df):
         st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
 
 
+# --- Panel Admin corregido ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
@@ -273,55 +274,41 @@ def admin_panel():
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         
-        # Este es el nuevo bloque para mostrar el tamaño, asegúrate de que no haya sangría
         if os.path.exists(HISTORIAL_EXCEL_PATH):
             file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
             st.markdown(f"💾 **Tamaño actual de la base de datos:** {file_size_mb:.2f} MB")
 
-        # La línea 'try' debe estar sangrada
         if uploaded_file is not None:
             try:
-                # Carga el archivo subido
                 df_nuevo = pd.read_excel(uploaded_file)
                 st.write("Vista previa del archivo cargado:")
                 st.dataframe(df_nuevo.head())
 
-                # Botón para cargar la base
                 if st.button("Cargar y actualizar base histórica"):
-                    # 1. Carga la base histórica existente (si existe)
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
                     else:
                         df_historico_old = pd.DataFrame()
 
-                    # 2. Antes de combinar, revisamos si hay cambios para notificar
                     if not df_historico_old.empty:
-                        # Aseguramos que la columna 'Fecha' sea datetime para la comparación
                         df_nuevo['Fecha'] = pd.to_datetime(df_nuevo['Fecha']).dt.date
                         df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.date
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # 3. Combina los datos, manteniendo la última actualización para cada Destino + Fecha
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
                     
-                    # Se ordena por fecha y luego se eliminan duplicados para mantener la última versión
-                    # La clave para los duplicados es la combinación de Destino y Fecha
                     combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
                     combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
                     
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
                     
-                    # 4. Actualiza el historial de carga
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
                     
                     st.success("✅ Base de datos histórica actualizada.")
-                    
-                    # Limpia la caché para que la consulta de usuario use los datos nuevos
                     st.cache_data.clear()
 
-                    # Uso seguro de rerun
                     try:
                         st.experimental_rerun()
                     except AttributeError:
@@ -351,7 +338,6 @@ def admin_panel():
             st.experimental_rerun()
         except AttributeError:
             st.rerun()
-
 
 # --- Función para mostrar fichas visuales (SIN el botón) ---
 def mostrar_fichas_visuales(df_resultado):
@@ -479,36 +465,57 @@ def user_panel():
         resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
-            # Obtener el destino para el botón de suscripción
             destino_para_suscripcion = resultado['Destino'].iloc[0]
 
-            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
-            st.info(descripcion)
-            
-            if st.button(f"🔔 Suscribirme al Destino {destino_para_suscripcion}", key=f"sub_{destino_para_suscripcion}"):
-                st.markdown(f"""
-                <script>
-                window.OneSignal = window.OneSignal || [];
-                OneSignal.push(function() {{
-                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
-                        if (isEnabled) {{
-                            OneSignal.sendTags({{
-                                destino_id: "{destino_para_suscripcion}"
-                            }}).then(function(tags) {{
-                                console.log('Suscrito al destino:', tags);
-                                alert('Te has suscrito a las notificaciones del Destino {destino_para_suscripcion}');
-                            }});
-                        }} else {{
-                            alert('Por favor, activa las notificaciones para poder suscribirte.');
-                            OneSignal.showSlidedownPrompt();
-                        }}
+            # --- NUEVA LÓGICA: Mostrar estado de suscripción ---
+            if st.session_state.get('subscribed_destinations', {}).get(destino_para_suscripcion, False):
+                st.success(f"✅ Estás suscrito a las notificaciones de {destino_para_suscripcion}.")
+                st.markdown("Puedes consultar tu destino en cualquier momento, y recibirás una notificación si su estatus cambia.")
+
+                if st.button(f"🚫 Anular suscripción", key=f"unsub_{destino_para_suscripcion}"):
+                    st.session_state.subscribed_destinations[destino_para_suscripcion] = False
+                    st.warning(f"Se ha anulado tu suscripción a las notificaciones de {destino_para_suscripcion}.")
+                    try:
+                        st.experimental_rerun()
+                    except AttributeError:
+                        st.rerun()
+            else:
+                descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
+                st.info(descripcion)
+                
+                if st.button(f"🔔 Suscribirme al Destino {destino_para_suscripcion}", key=f"sub_{destino_para_suscripcion}"):
+                    # Guardamos el estado de suscripción en la sesión
+                    st.session_state.subscribed_destinations[destino_para_suscripcion] = True
+                    
+                    st.success(f"¡Suscripción exitosa! Ahora recibirás notificaciones para el Destino {destino_para_suscripcion}.")
+
+                    st.markdown(f"""
+                    <script>
+                    window.OneSignal = window.OneSignal || [];
+                    OneSignal.push(function() {{
+                        OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
+                            if (isEnabled) {{
+                                OneSignal.sendTags({{
+                                    destino_id: "{destino_para_suscripcion}"
+                                }}).then(function(tags) {{
+                                    console.log('Suscrito al destino:', tags);
+                                    // La alerta de JS ahora es solo un respaldo
+                                }});
+                            }} else {{
+                                alert('Por favor, activa las notificaciones para poder suscribirte.');
+                                OneSignal.showSlidedownPrompt();
+                            }}
+                        }});
                     }});
-                }});
-                </script>
-                """, unsafe_allow_html=True)
+                    </script>
+                    """, unsafe_allow_html=True)
+                    try:
+                        st.experimental_rerun()
+                    except AttributeError:
+                        st.rerun()
             
-            # --- NUEVO: Agrupamos los resultados por fecha para mostrarlos separados ---
-            resultado = resultado.sort_values(by='Fecha', ascending=False)
+            # Agrupamos los resultados por fecha para mostrarlos separados
+            resultado = resultado[columnas_validas].sort_values(by='Fecha', ascending=False)
             
             for fecha, grupo in resultado.groupby('Fecha'):
                 fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
@@ -525,6 +532,10 @@ def main():
 
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
+    
+    # --- NUEVO: Inicializar el estado de suscripciones ---
+    if 'subscribed_destinations' not in st.session_state:
+        st.session_state.subscribed_destinations = {}
 
     menu = st.sidebar.radio("📋 Menú principal", ["Consultar estatus", "Admin Login"])
 
