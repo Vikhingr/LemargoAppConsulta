@@ -133,6 +133,7 @@ def cargar_historial():
             with open(HISTORIAL_PATH, "r") as f:
                 return json.load(f)
         except Exception:
+            # Si el archivo está corrupto o no se puede leer, se reinicia
             return []
     return []
 
@@ -190,7 +191,6 @@ def login():
     if st.button("Entrar"):
         if user == ADMIN_USER and pwd == ADMIN_PASS:
             st.session_state.logged_in = True
-            # Uso seguro de rerun
             try:
                 st.experimental_rerun()
             except AttributeError:
@@ -251,7 +251,7 @@ def admin_panel():
                 if nuevo_hash != hash_guardado:
                     guardar_hash_actual(nuevo_hash)
 
-                    # --- CORRECCIÓN: Guardar la fecha y hora con la zona horaria ---
+                    # --- CORRECCIÓN: Se asegura que se guarde el formato correcto ISO ---
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
@@ -260,7 +260,6 @@ def admin_panel():
                 else:
                     st.info("El archivo cargado es igual al anterior. No se envió notificación.")
 
-                # Uso seguro de rerun
                 try:
                     st.experimental_rerun()
                 except AttributeError:
@@ -273,12 +272,12 @@ def admin_panel():
             historial = cargar_historial()
             if historial:
                 for i, fecha in enumerate(historial[::-1], 1):
-                    # --- CORRECCIÓN: Mostrar la fecha formateada correctamente ---
+                    # --- CORRECCIÓN: Manejo de errores al mostrar historial ---
                     try:
                         fecha_dt = datetime.datetime.fromisoformat(fecha)
                         st.write(f"{i}. {fecha_dt.strftime('%d/%m/%Y - %H:%M:%S Hrs.')} CDMX")
                     except ValueError:
-                        st.write(f"{i}. {fecha}")
+                        st.write(f"{i}. (fecha inválida)")
             else:
                 st.write("No hay actualizaciones aún.")
 
@@ -286,7 +285,6 @@ def admin_panel():
 
     if st.button("Cerrar sesión"):
         st.session_state.logged_in = False
-        # Uso seguro de rerun
         try:
             st.experimental_rerun()
         except AttributeError:
@@ -295,10 +293,10 @@ def admin_panel():
 # --- Nueva función para mostrar fichas visuales ---
 def mostrar_fichas_visuales(df_resultado):
     colores = {
-        "PROGRAMADO": (0, 123, 255),    # azul RGB
-        "FACTURADO": (40, 167, 69),      # verde RGB
-        "CANCELADO": (220, 53, 69),      # rojo RGB
-        "CARGANDO": (255, 193, 7)       # amarillo RGB
+        "PROGRAMADO": (0, 123, 255),
+        "FACTURADO": (40, 167, 69),
+        "CANCELADO": (220, 53, 69),
+        "CARGANDO": (255, 193, 7)
     }
     iconos = {
         "PROGRAMADO": "📅",
@@ -322,10 +320,9 @@ def mostrar_fichas_visuales(df_resultado):
             rgb = colores["CARGANDO"]
             icono = iconos["CARGANDO"]
         else:
-            rgb = (108, 117, 125)  # gris
+            rgb = (108, 117, 125)
             icono = "ℹ️"
 
-        # Color traslucido (rgba con alpha 0.65)
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
 
         ficha_html = f"""
@@ -376,8 +373,8 @@ def user_panel():
     if historial:
         ultima_fecha_str = historial[-1]
         try:
+            # --- CORRECCIÓN: Se asegura que el formato sea el correcto con fromisoformat ---
             ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
-            # Convertir a zona horaria CDMX
             ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
             st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
         except Exception:
@@ -401,7 +398,6 @@ def user_panel():
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
-        # Extraer número del destino para búsqueda exacta
         df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
 
         resultado = df[df['Destino_num'] == pedido.strip()]
