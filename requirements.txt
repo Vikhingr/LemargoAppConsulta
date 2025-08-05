@@ -1,4 +1,8 @@
 streamlit
 pandas
-openpyxl
+numpy
+altair
 requests
+python-dotenv
+openpyxl
+streamlit-autorefresh
