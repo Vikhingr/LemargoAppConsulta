@@ -214,10 +214,8 @@ def admin_dashboard():
 
     st.subheader("📊 Visualización y análisis de datos")
 
-    # Aseguramos que las columnas existan antes de usarlas
     columnas_disponibles = df.columns.tolist()
     
-    # --- Filtros interactivos ---
     if 'Producto' in columnas_disponibles and 'Estado de atención' in columnas_disponibles:
         col1, col2 = st.columns(2)
         
@@ -243,33 +241,38 @@ def admin_dashboard():
         st.markdown("#### Conteo por Estado de atención")
         conteo_estado = df_filtrado['Estado de atención'].value_counts().reset_index()
         conteo_estado.columns = ['Estado', 'Cantidad']
+        
         chart_estado = alt.Chart(conteo_estado).mark_bar(
             cornerRadiusTopLeft=3,
-            cornerRadiusTopRight=3
+            cornerRadiusTopRight=3,
+            # --- CAMBIO AQUÍ: color fijo para las barras ---
+            color='#4e79a7'
         ).encode(
             x=alt.X('Estado', sort='-y', title='Estado de atención'),
             y=alt.Y('Cantidad', title='Número de registros'),
             tooltip=['Estado', 'Cantidad'],
-            color=alt.Color('Estado', legend=None)
-        ).properties(width=600, title='Distribución por Estado').interactive()
+            # --- Quitamos el color de la codificación ---
+        ).properties(width=600, title='Distribución por Estado')
         st.altair_chart(chart_estado, use_container_width=True)
 
     if 'Destino' in df_filtrado.columns:
         st.markdown("#### Conteo por Destino")
         conteo_destino = df_filtrado['Destino'].value_counts().reset_index()
         conteo_destino.columns = ['Destino', 'Cantidad']
+        
         chart_destino = alt.Chart(conteo_destino).mark_bar(
             cornerRadiusTopLeft=3,
-            cornerRadiusTopRight=3
+            cornerRadiusTopRight=3,
+            # --- CAMBIO AQUÍ: color fijo para las barras ---
+            color='#59a14f'
         ).encode(
             x=alt.X('Cantidad', title='Número de registros'),
             y=alt.Y('Destino', sort='-x', title='Destino'),
             tooltip=['Destino', 'Cantidad'],
-            color=alt.Color('Destino', legend=None)
-        ).properties(width=600, title='Conteo de Registros por Destino').interactive()
+            # --- Quitamos el color de la codificación ---
+        ).properties(width=600, title='Conteo de Registros por Destino')
         st.altair_chart(chart_destino, use_container_width=True)
 
-    # --- Tabla de datos filtrada ---
     st.markdown("---")
     st.markdown("#### 📝 Datos filtrados")
     st.dataframe(df_filtrado)
