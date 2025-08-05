@@ -371,6 +371,15 @@ def admin_dashboard():
 # --- Lógica de notificaciones mejorada (ahora compara por Destino, Fecha y Producto) ---
 def check_and_notify_on_change(old_df, new_df):
     try:
+        # Limpieza de las columnas clave antes de la comparación
+        old_df['Destino'] = old_df['Destino'].astype(str).str.strip().str.upper()
+        old_df['Producto'] = old_df['Producto'].astype(str).str.strip().str.upper()
+        old_df['Estado de atención'] = old_df['Estado de atención'].astype(str).str.strip().str.upper()
+        
+        new_df['Destino'] = new_df['Destino'].astype(str).str.strip().str.upper()
+        new_df['Producto'] = new_df['Producto'].astype(str).str.strip().str.upper()
+        new_df['Estado de atención'] = new_df['Estado de atención'].astype(str).str.strip().str.upper()
+
         old_df['Fecha'] = pd.to_datetime(old_df['Fecha'])
         new_df['Fecha'] = pd.to_datetime(new_df['Fecha'])
         
@@ -438,13 +447,16 @@ def admin_panel():
                     
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
                     
-                    # --- Lógica corregida para no perder productos duplicados ---
                     if 'Producto' in combined_df.columns:
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        # Limpiamos antes de eliminar duplicados para evitar errores por espacios o mayúsculas
+                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
+                        combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
                     else:
                         st.warning("La columna 'Producto' no se encontró. No se puede evitar la duplicación de productos.")
                         combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
 
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
@@ -581,101 +593,4 @@ def user_panel():
         ultima_fecha_str = historial[-1]
         try:
             ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
-            ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
-            st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
-        except Exception:
-            st.info("📅 Última actualización: (fecha inválida)")
-    else:
-        st.info("📅 Última actualización: (sin datos)")
-
-    try:
-        df = cargar_datos()
-    except Exception as e:
-        st.error(f"Error al leer archivo: {e}")
-        return
-
-    if 'Destino' not in df.columns:
-        st.error("❌ Falta la columna 'Destino'")
-        return
-    if 'Fecha' not in df.columns:
-        st.error("❌ Falta la columna 'Fecha' para ordenar por día.")
-        return
-
-    pedido = st.text_input("Ingresa tu número de destino")
-    if pedido:
-        columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
-                    'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
-        columnas_validas = [col for col in columnas if col in df.columns]
-
-        df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
-
-        resultado = df[df['Destino_num'] == pedido.strip()]
-
-        if not resultado.empty:
-            destino_para_suscripcion = resultado['Destino'].iloc[0]
-            # --- CORREGIDO: obtener el número de destino para la suscripción ---
-            destino_num_para_suscripcion = str(destino_para_suscripcion).split('-')[0].strip()
-
-            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_num_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
-            st.info(descripcion)
-            
-            if st.button(f"🔔 Suscribirme al Destino {destino_num_para_suscripcion}", key=f"sub_{destino_num_para_suscripcion}"):
-                
-                st.success(f"¡Suscripción exitosa! Ahora recibirás notificaciones para el Destino {destino_num_para_suscripcion}.")
-
-                st.markdown(f"""
-                <script>
-                window.OneSignal = window.OneSignal || [];
-                OneSignal.push(function() {{
-                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
-                        if (isEnabled) {{
-                            OneSignal.sendTags({{
-                                destino_id: "{destino_num_para_suscripcion}"
-                            }}).then(function(tags) {{
-                                console.log('Suscrito al destino:', tags);
-                            }});
-                        }} else {{
-                            alert('Por favor, activa las notificaciones para poder suscribirte.');
-                            OneSignal.showSlidedownPrompt();
-                        }}
-                    }});
-                }});
-                </script>
-                """, unsafe_allow_html=True)
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
-            
-            resultado = resultado[columnas_validas].sort_values(by='Fecha', ascending=False)
-            
-            # Agrupamos los resultados por fecha para mostrarlos separados
-            for fecha, grupo in resultado.groupby('Fecha'):
-                fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
-                st.subheader(f"📅 Detalles del día: {fecha_formateada}")
-                mostrar_fichas_visuales(grupo) # Se mostrarán todos los productos para esa fecha
-        else:
-            st.warning("No se encontraron resultados.")
-
-# --- App principal ---
-def main():
-    pwa_setup()
-    onesignal_web_push_setup()
-    pwa_install_prompt()
-
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-
-    menu = st.sidebar.radio("📋 Menú principal", ["Consultar estatus", "Admin Login"])
-
-    if menu == "Consultar estatus":
-        user_panel()
-    elif menu == "Admin Login":
-        if not st.session_state.logged_in:
-            login()
-        else:
-            st.success("🛠️ Sesión iniciada como administrador")
-            admin_panel()
-
-if __name__ == "__main__":
-    main()
+            ultima_fecha_cdmx
