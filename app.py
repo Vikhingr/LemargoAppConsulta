@@ -369,40 +369,41 @@ def admin_dashboard():
 # --- Lógica de notificaciones mejorada (ahora compara por Destino, Fecha y Producto) ---
 def check_and_notify_on_change(old_df, new_df):
     try:
-        # Limpieza de las columnas clave antes de la comparación
-        old_df['Destino'] = old_df['Destino'].astype(str).str.strip().str.upper()
-        old_df['Producto'] = old_df['Producto'].astype(str).str.strip().str.upper()
-        old_df['Estado de atención'] = old_df['Estado de atención'].astype(str).str.strip().str.upper()
+        st.warning("⚠️ Iniciando detección de cambios...")
 
-        new_df['Destino'] = new_df['Destino'].astype(str).str.strip().str.upper()
-        new_df['Producto'] = new_df['Producto'].astype(str).str.strip().str.upper()
-        new_df['Estado de atención'] = new_df['Estado de atención'].astype(str).str.strip().str.upper()
-
-        # CLAVE: Convertir la fecha a un formato de texto estándar para eliminar la hora
-        old_df['Fecha'] = pd.to_datetime(old_df['Fecha']).dt.strftime('%Y-%m-%d')
-        new_df['Fecha'] = pd.to_datetime(new_df['Fecha']).dt.strftime('%Y-%m-%d')
-
+        # 1. Normalizar y preparar ambos DataFrames
+        for df in [old_df, new_df]:
+            df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
+            df['Producto'] = df['Producto'].astype(str).str.strip().str.upper()
+            df['Estado de atención'] = df['Estado de atención'].astype(str).str.strip().str.upper()
+            df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime('%Y-%m-%d')
+        
+        # 2. Crear un índice único para la comparación
         key_columns = ['Destino', 'Fecha', 'Producto']
+        old_df = old_df.set_index(key_columns)
+        new_df = new_df.set_index(key_columns)
 
-        # Se fusionan los DataFrames para encontrar los cambios de estado
-        merged_df = pd.merge(
-            old_df,
-            new_df,
-            on=key_columns,
-            how='inner',
-            suffixes=('_old', '_new')
-        )
+        # 3. Encontrar las diferencias de estado directamente
+        # Encontramos los índices que están en ambos DataFrames (posibles cambios)
+        indices_comunes = old_df.index.intersection(new_df.index)
+        
+        # Filtramos ambos DataFrames para solo comparar los índices comunes
+        old_df_common = old_df.loc[indices_comunes]
+        new_df_common = new_df.loc[indices_comunes]
 
-        cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
+        # Comparamos la columna de 'Estado de atención' para encontrar las diferencias
+        cambios_de_estado = old_df_common['Estado de atención'] != new_df_common['Estado de atención']
+        indices_con_cambio = cambios_de_estado[cambios_de_estado].index
 
-        if not cambios_df.empty:
-            st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
-            for _, row in cambios_df.iterrows():
-                destino = row['Destino']
-                estado_anterior = row['Estado de atención_old']
-                estado_nuevo = row['Estado de atención_new']
-
-                # Usar el número de destino para la notificación
+        if not indices_con_cambio.empty:
+            st.warning(f"🔔 Se detectaron {len(indices_con_cambio)} cambios de estado. Enviando notificaciones...")
+            
+            for index_tuple in indices_con_cambio:
+                destino, _, _ = index_tuple
+                
+                estado_anterior = old_df.loc[index_tuple, 'Estado de atención']
+                estado_nuevo = new_df.loc[index_tuple, 'Estado de atención']
+                
                 destino_num = str(destino).split('-')[0].strip()
 
                 titulo = f"Actualización en Destino: {destino}"
