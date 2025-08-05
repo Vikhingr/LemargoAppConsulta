@@ -20,7 +20,6 @@ ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
 # --- Rutas y archivos ---
-# CAMBIO: Usaremos un archivo JSON como la fuente de verdad, no el Excel
 DB_PATH = "golden_record.json"
 HISTORIAL_PATH = "historial_actualizaciones.json"
 
@@ -449,6 +448,7 @@ def admin_panel():
             
         if uploaded_file is not None:
             try:
+                # --- Lectura de archivo más robusta ---
                 df_nuevo = pd.read_excel(
                     uploaded_file,
                     engine='openpyxl',
@@ -464,9 +464,14 @@ def admin_panel():
                 st.write("Vista previa del archivo cargado:")
                 st.dataframe(df_nuevo.head())
 
-                if st.button("Actualizar base histórica"):
+                if st.button("Cargar y actualizar base histórica"):
                     
-                    # --- NUEVA LÓGICA: SIMPLEMENTE ACTUALIZAR LA BASE DE DATOS ---
+                    df_historico_old = st.session_state.last_df.copy()
+
+                    if not df_historico_old.empty:
+                        check_and_notify_on_change(df_historico_old, df_nuevo)
+                    
+                    # --- NUEVA LÓGICA: GUARDAR EN JSON ---
                     guardar_datos(df_nuevo)
                     st.session_state.last_df = df_nuevo.copy()
 
@@ -483,32 +488,6 @@ def admin_panel():
 
             except Exception as e:
                 st.error(f"Error al procesar archivo: {e}")
-                
-        # --- AÑADIDO: PANEL MANUAL DE NOTIFICACIONES ---
-        st.markdown("---")
-        st.subheader("🔔 Enviar notificación de cambio (Manual)")
-        st.info("Utiliza esta opción para enviar una notificación de forma manual y garantizar que el cambio se registre.")
-        
-        df_historico = cargar_datos()
-        if not df_historico.empty:
-            destinos = df_historico['Destino'].unique().tolist()
-            destino_seleccionado = st.selectbox("Selecciona el Destino", options=destinos)
-            
-            if destino_seleccionado:
-                estado_anterior = st.text_input("Estado anterior (opcional)")
-                estado_nuevo = st.text_input("Estado nuevo", value=df_historico[df_historico['Destino'] == destino_seleccionado]['Estado de atención'].iloc[0])
-
-                if st.button("Enviar notificación manual"):
-                    if not estado_nuevo:
-                        st.error("El estado nuevo es obligatorio.")
-                    else:
-                        destino_num = str(destino_seleccionado).split('-')[0].strip()
-                        titulo = f"Actualización en Destino: {destino_seleccionado}"
-                        mensaje = f"Estado cambió de '{estado_anterior if estado_anterior else 'N/A'}' a '{estado_nuevo}'"
-                        enviar_notificacion_por_destino(destino_num, titulo, mensaje)
-        else:
-            st.info("Sube el primer archivo para habilitar las notificaciones manuales.")
-    # --- FIN AÑADIDO ---
                 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
