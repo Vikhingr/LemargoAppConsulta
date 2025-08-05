@@ -336,7 +336,7 @@ def admin_panel():
         except AttributeError:
             st.rerun()
 
-# --- Función para mostrar fichas visuales ---
+# --- Función para mostrar fichas visuales (SIN el botón) ---
 def mostrar_fichas_visuales(df_resultado):
     colores = {
         "PROGRAMADO": (0, 123, 255),
@@ -371,11 +371,9 @@ def mostrar_fichas_visuales(df_resultado):
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
         
-        # Obtiene el valor de la columna 'Destino'
         destino = fila.get('Destino', '')
-        
-        # Obtiene el valor de la columna 'Fecha'
         fecha_general = fila.get('Fecha', None)
+        
         if pd.notnull(fecha_general) and isinstance(fecha_general, datetime.datetime):
             fecha_general = fecha_general.strftime('%d/%m/%Y')
         
@@ -418,31 +416,6 @@ def mostrar_fichas_visuales(df_resultado):
         </div>
         """
         st.markdown(ficha_html, unsafe_allow_html=True)
-        
-        # --- NUEVO: Botón de suscripción por destino ---
-        # El botón solo se muestra si el destino tiene un valor
-        if destino and st.button(f"🔔 Suscribirme al Destino {destino}", key=f"sub_{destino}"):
-            # Script para enviar el tag a OneSignal. La clave 'destino_id' debe coincidir con la del payload del admin.
-            st.markdown(f"""
-            <script>
-            window.OneSignal = window.OneSignal || [];
-            OneSignal.push(function() {{
-                OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
-                    if (isEnabled) {{
-                        OneSignal.sendTags({{
-                            destino_id: "{destino}"
-                        }}).then(function(tags) {{
-                            console.log('Suscrito al destino:', tags);
-                            alert('Te has suscrito a las notificaciones del Destino {destino}');
-                        }});
-                    }} else {{
-                        alert('Por favor, activa las notificaciones para poder suscribirte.');
-                        OneSignal.showSlidedownPrompt();
-                    }}
-                }});
-            }});
-            </script>
-            """, unsafe_allow_html=True)
 
 
 def user_panel():
@@ -485,6 +458,37 @@ def user_panel():
         resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
+            # Obtenemos el destino del primer resultado para el botón
+            destino = resultado['Destino'].iloc[0]
+
+            # --- BOTÓN ÚNICO DE SUSCRIPCIÓN ---
+            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
+            st.info(descripcion)
+
+            # Botón único, la clave es única por el destino
+            if st.button(f"🔔 Suscribirme al Destino {destino}", key=f"sub_{destino}"):
+                st.markdown(f"""
+                <script>
+                window.OneSignal = window.OneSignal || [];
+                OneSignal.push(function() {{
+                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
+                        if (isEnabled) {{
+                            OneSignal.sendTags({{
+                                destino_id: "{destino}"
+                            }}).then(function(tags) {{
+                                console.log('Suscrito al destino:', tags);
+                                alert('Te has suscrito a las notificaciones del Destino {destino}');
+                            }});
+                        }} else {{
+                            alert('Por favor, activa las notificaciones para poder suscribirte.');
+                            OneSignal.showSlidedownPrompt();
+                        }}
+                    }});
+                }});
+                </script>
+                """, unsafe_allow_html=True)
+            
+            # Mostramos las fichas visuales
             resultado = resultado[columnas_validas].reset_index(drop=True)
             mostrar_fichas_visuales(resultado)
         else:
