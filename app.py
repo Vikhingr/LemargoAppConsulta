@@ -382,16 +382,12 @@ def check_and_notify_on_change(old_df, new_df):
         old_df['Fecha'] = pd.to_datetime(old_df['Fecha']).dt.strftime('%Y-%m-%d')
         new_df['Fecha'] = pd.to_datetime(new_df['Fecha']).dt.strftime('%Y-%m-%d')
 
-        # Aseguramos que ambos DataFrames no tengan duplicados antes de la fusión
-        # Esto evita que la comparación genere resultados incorrectos
         key_columns = ['Destino', 'Fecha', 'Producto']
-        old_df_clean = old_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=key_columns, keep='last')
-        new_df_clean = new_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=key_columns, keep='last')
 
         # Se fusionan los DataFrames para encontrar los cambios de estado
         merged_df = pd.merge(
-            old_df_clean,
-            new_df_clean,
+            old_df,
+            new_df,
             on=key_columns,
             how='inner',
             suffixes=('_old', '_new')
@@ -445,23 +441,39 @@ def admin_panel():
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
 
-                    # Verificamos los cambios antes de fusionar
+                    # --- CLAVE: Limpiamos la base histórica ANTES de comparar ---
                     if not df_historico_old.empty:
-                        check_and_notify_on_change(df_historico_old, df_nuevo)
+                        df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.strftime('%Y-%m-%d')
+                        df_historico_old['Destino'] = df_historico_old['Destino'].astype(str).str.strip().str.upper()
+                        if 'Producto' in df_historico_old.columns:
+                            df_historico_old['Producto'] = df_historico_old['Producto'].astype(str).str.strip().str.upper()
+                            df_historico_old_clean = df_historico_old.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='last')
+                        else:
+                            df_historico_old_clean = df_historico_old.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='last')
+                    else:
+                        df_historico_old_clean = pd.DataFrame()
 
-                    # Concatenamos y eliminamos duplicados para limpiar la base
+                    # Verificamos los cambios entre el histórico limpio y el archivo nuevo
+                    if not df_historico_old_clean.empty:
+                        check_and_notify_on_change(df_historico_old_clean, df_nuevo)
+
+                    # Concatenamos la base histórica (sin limpiar) y el nuevo archivo
+                    # para luego limpiar todo el conjunto y guardar una base perfecta
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
 
                     if 'Producto' in combined_df.columns:
-                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha']).dt.strftime('%Y-%m-%d')
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
                     else:
                         st.warning("La columna 'Producto' no se encontró. No se puede evitar la duplicación de productos.")
-                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha']).dt.strftime('%Y-%m-%d')
                         combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
                         combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
+
+                    # Volvemos a convertir la fecha a formato datetime para que funcione el dashboard
+                    combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
 
                     # Guardamos la nueva base acumulada y limpia
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
@@ -469,7 +481,7 @@ def admin_panel():
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
-                    st.success("✅ Base de datos histórica actualizada y acumulada.")
+                    st.success("✅ Base de datos histórica actualizada, acumulada y limpia.")
                     st.cache_data.clear()
 
                     try:
