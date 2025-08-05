@@ -409,7 +409,7 @@ def user_panel():
 
     pedido = st.text_input("Ingresa tu número de destino")
     if pedido:
-        columnas = ['Fecha', 'Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
+        columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
