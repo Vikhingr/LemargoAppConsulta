@@ -339,17 +339,26 @@ def mostrar_fichas_visuales(df_resultado):
         ">
             <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
+        # Muestra la columna 'Fecha' si está disponible
+        fecha_general = fila.get('Fecha', None)
+        if pd.notnull(fecha_general):
+            ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
+                
+        # Muestra el resto de columnas de información
+        ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
         """
 
+        # Muestra la columna 'Fecha y hora estimada' si está disponible
         fecha_estimada = fila.get('Fecha y hora estimada', None)
-        fecha_facturacion = fila.get('Fecha y hora de facturación', None)
-
         if pd.notnull(fecha_estimada):
             ficha_html += f"<b>Fecha Estimada:</b> {fecha_estimada}<br>"
-        elif pd.notnull(fecha_facturacion):
+        
+        # Muestra la columna 'Fecha y hora de facturación' si está disponible
+        fecha_facturacion = fila.get('Fecha y hora de facturación', None)
+        if pd.notnull(fecha_facturacion):
             ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
 
         ficha_html += f"""
@@ -394,7 +403,7 @@ def user_panel():
 
     pedido = st.text_input("Ingresa tu número de destino")
     if pedido:
-        columnas = ['Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
+        columnas = ['Fecha','Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
