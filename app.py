@@ -282,7 +282,6 @@ def admin_panel():
         except AttributeError:
             st.rerun()
 
-# --- Panel Usuario ---
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
@@ -311,8 +310,10 @@ def user_panel():
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
-        # Búsqueda exacta (ignorando mayúsculas y espacios)
-        resultado = df[df['Destino'].astype(str).str.strip().str.lower() == pedido.strip().lower()]
+        # Extraer número del destino para búsqueda exacta
+        df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
+
+        resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
             resultado = resultado[columnas_validas].reset_index(drop=True)
