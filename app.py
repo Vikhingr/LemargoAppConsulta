@@ -307,10 +307,6 @@ def user_panel():
 
     pedido = st.text_input("Ingresa tu número de destino")
     if pedido:
-        if len(pedido) < 3:
-            st.info("Escribe al menos 3 caracteres.")
-            return
-
         columnas = ['Destino', 'Producto', 'Turno', 'Capacidad programada (Litros)',
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
