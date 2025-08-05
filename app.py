@@ -324,7 +324,7 @@ def mostrar_fichas_visuales(df_resultado):
             icono = "ℹ️"
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
-
+        
         ficha_html = f"""
         <div style="
             background-color: {color_rgba};
@@ -339,6 +339,8 @@ def mostrar_fichas_visuales(df_resultado):
         ">
             <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
+        """
+        
         # Muestra la columna 'Fecha' si está disponible
         fecha_general = fila.get('Fecha', None)
         if pd.notnull(fecha_general):
@@ -366,7 +368,6 @@ def mostrar_fichas_visuales(df_resultado):
             </div>
         </div>
         """
-
         st.markdown(ficha_html, unsafe_allow_html=True)
 
 
