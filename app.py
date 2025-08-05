@@ -124,9 +124,9 @@ def admin_panel():
     else:
         st.warning("Por favor, carga un archivo Excel.")
 
-# Función sección usuarios
+# ✅ Función modificada: búsqueda parcial por número de destino
 def usuario_panel():
-    st.title("🔍 Consulta tu pedido por destino")
+    st.title("🔍 Consulta tu pedido por número de destino")
 
     try:
         historico = pd.read_excel("historico_estatus.xlsx")
@@ -136,20 +136,25 @@ def usuario_panel():
 
     historico["Destino_str"] = historico["Destino"].astype(str)
 
-    query = st.text_input("🔎 Escribe tu número de destino exacto:")
+    query = st.text_input("🔎 Escribe solo el número de tu destino (ej. 58):")
     if query:
-        # Solo coincidencias exactas
-        df_filtrado = historico[historico["Destino_str"] == query.strip()]
+        numero = query.strip()
+
+        # Filtra si el número está contenido como palabra completa
+        df_filtrado = historico[historico["Destino_str"].str.contains(rf'\b{numero}\b', na=False, case=False)]
+
         if not df_filtrado.empty:
-            destino_actual = query.strip()
+            destino_actual = df_filtrado.iloc[0]["Destino_str"]  # toma el primero coincidente
+
             if st.button("🔔 Suscribirme a notificaciones de este destino"):
                 subscribe_to_destino(destino_actual)
+
             mostrar_tarjetas(df_filtrado[[
                 "Producto", "Turno", "Tonel", "Capacidad programada (Litros)",
                 "Fecha y hora estimada", "Fecha y hora de facturación", "Estado de atención"
             ]])
         else:
-            st.info("⚠️ No se encontraron pedidos exactos para ese destino.")
+            st.info("⚠️ No se encontraron pedidos para ese número de destino.")
 
 # Función principal
 def main():
