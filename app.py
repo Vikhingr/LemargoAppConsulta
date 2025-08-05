@@ -42,7 +42,7 @@ st.markdown("""
         background-color: #1f2937;
         color: #cbd5e1;
     }
-    .css-1d391kg {  /* área de alertas, info, warning */
+    .css-1d391kg {
         background-color: #1e293b !important;
         border-radius: 8px;
         padding: 10px;
@@ -50,7 +50,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Función para enviar notificaciones OneSignal por destino
 def enviar_notificacion(destino, mensaje):
     url = "https://onesignal.com/api/v1/notifications"
     payload = {
@@ -70,7 +69,6 @@ def enviar_notificacion(destino, mensaje):
     except Exception as e:
         st.error(f"Error al enviar notificación: {e}")
 
-# Actualiza y consolida base, detecta cambios y notifica
 def actualizar_base(nuevo_df):
     nuevo_df["ID"] = nuevo_df["Destino"] + "_" + nuevo_df["Fecha"].astype(str)
     nuevo_df["Hora de consulta"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -105,7 +103,6 @@ def actualizar_base(nuevo_df):
             mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'."
         enviar_notificacion(destino, mensaje)
 
-# Panel login (sin retorno, para evitar error rerun)
 def login_panel():
     st.markdown("### 🔐 Admin Login")
     user = st.text_input("Usuario", key="user_login")
@@ -118,7 +115,6 @@ def login_panel():
         else:
             st.error("❌ Credenciales incorrectas")
 
-# Panel admin con carga y actualización base
 def admin_section():
     st.markdown("### 📤 Sección Administrador")
     archivo = st.file_uploader("Subir archivo nuevo_datos.xlsx", type=["xlsx"])
@@ -135,7 +131,6 @@ def admin_section():
         except Exception as e:
             st.error(f"Error al actualizar: {str(e)}")
 
-# Sección usuario con búsqueda y suscripción
 def user_section():
     st.markdown("## Consulta de Pedido")
 
@@ -144,30 +139,31 @@ def user_section():
         return
 
     df_hist = pd.read_excel("historico_estatus.xlsx")
-    destinos = sorted(df_hist["Destino"].unique())
+    destinos = df_hist["Destino"].astype(str).unique()
 
-    destino_input = st.text_input("Escribe tu número de destino exacto para buscar")
+    destino_input = st.text_input("🔎 Escribe el número de destino (ej: 1234)")
 
     destino_sel = None
     if destino_input:
-        # búsqueda exacta ignorando espacios
         destino_input = destino_input.strip()
-        if destino_input in destinos:
-            destino_sel = destino_input
+        coincidencias = [d for d in destinos if str(d).startswith(destino_input)]
+        if len(coincidencias) == 1:
+            destino_sel = coincidencias[0]
+        elif len(coincidencias) > 1:
+            destino_sel = st.selectbox("Selecciona el destino:", coincidencias)
         else:
-            st.warning("Destino no encontrado. Asegúrate de ingresar el número exacto.")
+            st.warning("⚠️ No se encontraron coincidencias para ese número.")
 
     if destino_sel:
         st.success(f"Destino seleccionado: {destino_sel}")
 
-        # Confirmación de suscripción
         st.markdown("""
             <p style="font-size: 14px; color: #cbd5e1;">
             Puedes suscribirte para recibir notificaciones cuando cambie el estatus de tu pedido.
             </p>
         """, unsafe_allow_html=True)
 
-        if st.button("Suscribirme a notificaciones para este destino"):
+        if st.button("🔔 Suscribirme a notificaciones para este destino"):
             st.markdown(f"""
                 <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
                 <script>
@@ -194,7 +190,6 @@ def user_section():
             mime="text/csv"
         )
 
-        # Historial visual con matplotlib
         fig, ax = plt.subplots(figsize=(8, 4))
         try:
             df_plot = df_filtrado.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0)
@@ -213,13 +208,11 @@ def main():
     if "admin_logged" not in st.session_state:
         st.session_state.admin_logged = False
 
-    # Sidebar para cerrar sesión admin
     if st.session_state.admin_logged:
         if st.sidebar.button("🔒 Cerrar sesión Admin"):
             st.session_state.admin_logged = False
             st.experimental_rerun()
 
-    # Mostrar panel admin o login o usuario según estado
     if st.session_state.admin_logged:
         admin_section()
     else:
