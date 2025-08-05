@@ -234,19 +234,20 @@ def admin_dashboard():
         ).properties(width=600)
         st.altair_chart(chart_destino)
 
-# --- NUEVA FUNCIÓN: Lógica para notificar solo si hay cambios de estado ---
+# --- Lógica de notificaciones mejorada (se comparan Destino y Fecha) ---
 def check_and_notify_on_change(old_df, new_df):
+    old_df['Fecha'] = pd.to_datetime(old_df['Fecha'])
+    new_df['Fecha'] = pd.to_datetime(new_df['Fecha'])
     
-    # 1. Combina los dos dataframes para comparar
+    # Se fusionan los DataFrames usando la combinación de 'Destino' y 'Fecha'
     merged_df = pd.merge(
-        old_df, 
-        new_df, 
-        on='Destino', 
-        how='inner', 
+        old_df,
+        new_df,
+        on=['Destino', 'Fecha'],
+        how='inner',
         suffixes=('_old', '_new')
     )
 
-    # 2. Encuentra los destinos donde el estado ha cambiado
     cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
     
     if not cambios_df.empty:
@@ -259,13 +260,12 @@ def check_and_notify_on_change(old_df, new_df):
             titulo = f"Actualización en Destino: {destino}"
             mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
             
-            # 3. Envía la notificación solo a los usuarios suscritos a este destino
             enviar_notificacion_por_destino(destino, titulo, mensaje)
     else:
         st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
 
 
-# --- Panel Admin ---
+# --- Panel Admin corregido ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
@@ -275,37 +275,39 @@ def admin_panel():
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         if uploaded_file is not None:
             try:
-                # Carga el archivo subido
                 df_nuevo = pd.read_excel(uploaded_file)
                 st.write("Vista previa del archivo cargado:")
                 st.dataframe(df_nuevo.head())
 
-                # Botón para cargar la base
                 if st.button("Cargar y actualizar base histórica"):
-                    # 1. Carga la base histórica existente (si existe)
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
                     else:
                         df_historico_old = pd.DataFrame()
 
-                    # 2. Revisa los cambios y envía notificaciones
+                    # Antes de combinar, revisamos si hay cambios para notificar
                     if not df_historico_old.empty:
+                        # Aseguramos que la columna 'Fecha' sea datetime para la comparación
+                        df_nuevo['Fecha'] = pd.to_datetime(df_nuevo['Fecha']).dt.date
+                        df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.date
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # 3. Combina la información (opcional, podrías solo reemplazar si el archivo es la fuente de la verdad)
-                    # Aquí la lógica asume que el nuevo archivo reemplaza el estado actual, por lo que lo guarda como el nuevo histórico.
-                    df_nuevo.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    # Combina los datos, manteniendo la última actualización para cada Destino + Fecha
+                    combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
                     
-                    # 4. Actualiza el historial de carga
+                    # Se ordena por fecha y luego se eliminan duplicados para mantener la última versión
+                    # La clave para los duplicados es la combinación de Destino y Fecha
+                    combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                    combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
+                    
+                    combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
                     
                     st.success("✅ Base de datos histórica actualizada.")
-                    
-                    # Limpia la caché para que la consulta de usuario use los datos nuevos
                     st.cache_data.clear()
 
-                    # Uso seguro de rerun
                     try:
                         st.experimental_rerun()
                     except AttributeError:
@@ -335,6 +337,7 @@ def admin_panel():
             st.experimental_rerun()
         except AttributeError:
             st.rerun()
+
 
 # --- Función para mostrar fichas visuales (SIN el botón) ---
 def mostrar_fichas_visuales(df_resultado):
@@ -418,6 +421,7 @@ def mostrar_fichas_visuales(df_resultado):
         st.markdown(ficha_html, unsafe_allow_html=True)
 
 
+# --- Panel de usuario corregido para mostrar por día ---
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
@@ -446,6 +450,9 @@ def user_panel():
     if 'Destino' not in df.columns:
         st.error("❌ Falta la columna 'Destino'")
         return
+    if 'Fecha' not in df.columns:
+        st.error("❌ Falta la columna 'Fecha' para ordenar por día.")
+        return
 
     pedido = st.text_input("Ingresa tu número de destino")
     if pedido:
@@ -458,15 +465,13 @@ def user_panel():
         resultado = df[df['Destino_num'] == pedido.strip()]
 
         if not resultado.empty:
-            # Obtenemos el destino del primer resultado para el botón
-            destino = resultado['Destino'].iloc[0]
+            # Obtener el destino para el botón de suscripción
+            destino_para_suscripcion = resultado['Destino'].iloc[0]
 
-            # --- BOTÓN ÚNICO DE SUSCRIPCIÓN ---
-            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
+            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
             st.info(descripcion)
-
-            # Botón único, la clave es única por el destino
-            if st.button(f"🔔 Suscribirme al Destino {destino}", key=f"sub_{destino}"):
+            
+            if st.button(f"🔔 Suscribirme al Destino {destino_para_suscripcion}", key=f"sub_{destino_para_suscripcion}"):
                 st.markdown(f"""
                 <script>
                 window.OneSignal = window.OneSignal || [];
@@ -474,10 +479,10 @@ def user_panel():
                     OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
                         if (isEnabled) {{
                             OneSignal.sendTags({{
-                                destino_id: "{destino}"
+                                destino_id: "{destino_para_suscripcion}"
                             }}).then(function(tags) {{
                                 console.log('Suscrito al destino:', tags);
-                                alert('Te has suscrito a las notificaciones del Destino {destino}');
+                                alert('Te has suscrito a las notificaciones del Destino {destino_para_suscripcion}');
                             }});
                         }} else {{
                             alert('Por favor, activa las notificaciones para poder suscribirte.');
@@ -488,9 +493,13 @@ def user_panel():
                 </script>
                 """, unsafe_allow_html=True)
             
-            # Mostramos las fichas visuales
-            resultado = resultado[columnas_validas].reset_index(drop=True)
-            mostrar_fichas_visuales(resultado)
+            # --- NUEVO: Agrupamos los resultados por fecha para mostrarlos separados ---
+            resultado = resultado.sort_values(by='Fecha', ascending=False)
+            
+            for fecha, grupo in resultado.groupby('Fecha'):
+                fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
+                st.subheader(f"📅 Detalles del día: {fecha_formateada}")
+                mostrar_fichas_visuales(grupo)
         else:
             st.warning("No se encontraron resultados.")
 
