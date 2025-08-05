@@ -368,38 +368,42 @@ def admin_dashboard():
             st.altair_chart(chart_top_demorados, use_container_width=True)
 
 
-# --- Lógica de notificaciones mejorada (se comparan Destino y Fecha) ---
+# --- Lógica de notificaciones mejorada (ahora compara por Destino, Fecha y Producto) ---
 def check_and_notify_on_change(old_df, new_df):
-    old_df['Fecha'] = pd.to_datetime(old_df['Fecha'])
-    new_df['Fecha'] = pd.to_datetime(new_df['Fecha'])
-    
-    # Se fusionan los DataFrames usando la combinación de 'Destino' y 'Fecha'
-    merged_df = pd.merge(
-        old_df,
-        new_df,
-        on=['Destino', 'Fecha'],
-        how='inner',
-        suffixes=('_old', '_new')
-    )
+    try:
+        old_df['Fecha'] = pd.to_datetime(old_df['Fecha'])
+        new_df['Fecha'] = pd.to_datetime(new_df['Fecha'])
+        
+        # Se fusionan los DataFrames usando la combinación de 'Destino', 'Fecha' y 'Producto'
+        merged_df = pd.merge(
+            old_df,
+            new_df,
+            on=['Destino', 'Fecha', 'Producto'],
+            how='inner',
+            suffixes=('_old', '_new')
+        )
 
-    cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
-    
-    if not cambios_df.empty:
-        st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
-        for _, row in cambios_df.iterrows():
-            destino = row['Destino']
-            estado_anterior = row['Estado de atención_old']
-            estado_nuevo = row['Estado de atención_new']
-            
-            # --- CORREGIDO: Usar el número de destino para la notificación ---
-            destino_num = str(destino).split('-')[0].strip()
-            
-            titulo = f"Actualización en Destino: {destino}"
-            mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
-            
-            enviar_notificacion_por_destino(destino_num, titulo, mensaje) # Ahora se envía con el número
-    else:
-        st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
+        cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
+        
+        if not cambios_df.empty:
+            st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
+            for _, row in cambios_df.iterrows():
+                destino = row['Destino']
+                estado_anterior = row['Estado de atención_old']
+                estado_nuevo = row['Estado de atención_new']
+                
+                # Usar el número de destino para la notificación
+                destino_num = str(destino).split('-')[0].strip()
+                
+                titulo = f"Actualización en Destino: {destino}"
+                mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
+                
+                enviar_notificacion_por_destino(destino_num, titulo, mensaje)
+        else:
+            st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
+
+    except Exception as e:
+        st.error(f"Error en la lógica de notificación: {e}")
 
 
 def admin_panel():
