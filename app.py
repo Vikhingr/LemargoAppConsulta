@@ -385,7 +385,7 @@ def user_panel():
 
         resultado = df[df['Destino_num'] == pedido.strip()]
 
-        if not resultado.empty:
+if not resultado.empty:
     resultado = resultado[columnas_validas].reset_index(drop=True)
     mostrar_fichas_visuales(resultado)
 else:
