@@ -434,29 +434,29 @@ def check_and_notify_on_change(old_df, new_df):
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
-    # Inicializar la lista de mensajes con un timestamp
+    # Inicializar la lista de mensajes si no existe
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    # --- Lógica para mostrar y borrar mensajes después de 10 segundos ---
-    messages_to_keep = []
-    current_time = datetime.datetime.now()
-    
-    for msg_type, msg, timestamp in st.session_state.messages:
-        if (current_time - timestamp).total_seconds() < 60:
-            messages_to_keep.append((msg_type, msg, timestamp))
-            if msg_type == 'success':
-                st.success(msg)
-            elif msg_type == 'error':
-                st.error(msg)
-            elif msg_type == 'warning':
-                st.warning(msg)
-            elif msg_type == 'info':
-                st.info(msg)
-    
-    st.session_state.messages = messages_to_keep
-    # --- Fin de la lógica de mensajes ---
+    # Mostrar los mensajes persistentes al inicio del panel
+    for msg_type, msg in st.session_state.messages:
+        if msg_type == 'success':
+            st.success(msg)
+        elif msg_type == 'error':
+            st.error(msg)
+        elif msg_type == 'warning':
+            st.warning(msg)
+        elif msg_type == 'info':
+            st.info(msg)
 
+    # Botón para limpiar los mensajes
+    if st.session_state.messages and st.button("Limpiar mensajes"):
+        st.session_state.messages = []
+        try:
+            st.experimental_rerun()
+        except AttributeError:
+            st.rerun()
+            
     st.markdown("---")
 
     col1, col2 = st.columns([3, 1])
@@ -467,7 +467,7 @@ def admin_panel():
             try:
                 st.session_state.last_df = cargar_datos()
             except Exception as e:
-                st.session_state.messages.append(('error', f"Error al cargar la base de datos histórica: {e}", datetime.datetime.now()))
+                st.session_state.messages.append(('error', f"Error al cargar la base de datos histórica: {e}"))
                 st.session_state.last_df = pd.DataFrame()
 
     with col1:
@@ -511,7 +511,7 @@ def admin_panel():
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
-                    st.session_state.messages.append(('success', "✅ Base de datos histórica actualizada. El archivo subido es la nueva base.", datetime.datetime.now()))
+                    st.session_state.messages.append(('success', "✅ Base de datos histórica actualizada. El archivo subido es la nueva base."))
                     st.cache_data.clear()
 
                     try:
@@ -520,7 +520,7 @@ def admin_panel():
                         st.rerun()
 
             except Exception as e:
-                st.session_state.messages.append(('error', f"❌ Error al procesar archivo: {e}", datetime.datetime.now()))
+                st.session_state.messages.append(('error', f"❌ Error al procesar archivo: {e}"))
                 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
@@ -557,12 +557,12 @@ def admin_panel():
             if os.path.exists(archivo):
                 os.remove(archivo)
                 borrados += 1
-                st.session_state.messages.append(('success', f"🗑️ Archivo '{archivo}' eliminado.", datetime.datetime.now()))
+                st.session_state.messages.append(('success', f"🗑️ Archivo '{archivo}' eliminado."))
             else:
-                st.session_state.messages.append(('info', f"Archivo '{archivo}' no encontrado.", datetime.datetime.now()))
+                st.session_state.messages.append(('info', f"Archivo '{archivo}' no encontrado."))
         
-        st.session_state.messages.append(('warning', f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo.", datetime.datetime.now()))
-        st.session_state.messages.append(('info', "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio.", datetime.datetime.now()))
+        st.session_state.messages.append(('warning', f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo."))
+        st.session_state.messages.append(('info', "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."))
         st.cache_data.clear()
         
         try:
