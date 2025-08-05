@@ -284,12 +284,11 @@ def admin_panel():
 
 # --- Nueva función para mostrar fichas visuales ---
 def mostrar_fichas_visuales(df_resultado):
-    # Mapas de colores e íconos
     colores = {
-        "PROGRAMADO": "#007bff",   # azul
-        "FACTURADO": "#28a745",    # verde
-        "CANCELADO": "#dc3545",    # rojo
-        "CARGANDO": "#ffc107"      # amarillo
+        "PROGRAMADO": (0, 123, 255),   # azul RGB
+        "FACTURADO": (40, 167, 69),    # verde RGB
+        "CANCELADO": (220, 53, 69),    # rojo RGB
+        "CARGANDO": (255, 193, 7)      # amarillo RGB
     }
     iconos = {
         "PROGRAMADO": "📅",
@@ -300,34 +299,36 @@ def mostrar_fichas_visuales(df_resultado):
 
     for _, fila in df_resultado.iterrows():
         estado = str(fila.get("Estado de atención", "")).upper()
-        color = None
-        icono = ""
-
         if "CANCELADO" in estado:
-            color = colores["CANCELADO"]
+            rgb = colores["CANCELADO"]
             icono = iconos["CANCELADO"]
         elif estado == "PROGRAMADO":
-            color = colores["PROGRAMADO"]
+            rgb = colores["PROGRAMADO"]
             icono = iconos["PROGRAMADO"]
         elif estado == "FACTURADO":
-            color = colores["FACTURADO"]
+            rgb = colores["FACTURADO"]
             icono = iconos["FACTURADO"]
         elif estado == "CARGANDO":
-            color = colores["CARGANDO"]
+            rgb = colores["CARGANDO"]
             icono = iconos["CARGANDO"]
         else:
-            color = "#6c757d"  # gris por defecto
+            rgb = (108, 117, 125)  # gris
             icono = "ℹ️"
+
+        # Color traslucido (rgba con alpha 0.65)
+        color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
 
         ficha_html = f"""
         <div style="
-            background-color: {color};
+            background-color: {color_rgba};
             border-radius: 8px;
             padding: 12px;
             margin-bottom: 10px;
             color: white;
             font-weight: 600;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
         ">
             <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
@@ -351,6 +352,7 @@ def mostrar_fichas_visuales(df_resultado):
         """
 
         st.markdown(ficha_html, unsafe_allow_html=True)
+
 
 def user_panel():
     st.title("🔍 Consulta de Estatus")
