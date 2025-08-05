@@ -325,9 +325,6 @@ def mostrar_fichas_visuales(df_resultado):
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
         
-        # Obtiene el valor de la columna 'Fecha'
-        fecha_general = fila.get('Fecha', None)
-        
         ficha_html = f"""
         <div style="
             background-color: {color_rgba};
@@ -344,18 +341,9 @@ def mostrar_fichas_visuales(df_resultado):
             <div style="font-size: 14px; margin-top: 4px;">
         """
         
- # Muestra la columna 'Fecha' si está disponible y formatea sin la hora
-        fecha_general = fila.get('Fecha', None)
-        if pd.notnull(fecha_general):
-            # Asumimos que la columna 'Fecha' es un objeto datetime y lo formateamos
-            # Si no es un objeto datetime, se muestra como texto
-            try:
-                fecha_str = fecha_general.strftime('%d/%m/%Y')
-                ficha_html += f"<b>Fecha:</b> {fecha_str}<br>"
-            except AttributeError:
-                # Si no es un datetime, lo tratamos como string
-                ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
+
         ficha_html += f"""
+                <b>Fecha:</b> {fila.get('Fecha', 'N/A')}<br>
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
