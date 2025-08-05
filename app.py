@@ -370,39 +370,38 @@ def admin_dashboard():
 def check_and_notify_on_change(old_df, new_df):
     try:
         st.warning("⚠️ Iniciando detección de cambios...")
-
-        # 1. Normalizar y preparar ambos DataFrames
+        
+        # Estandarizar las columnas clave de ambos DataFrames
         for df in [old_df, new_df]:
             df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
             df['Producto'] = df['Producto'].astype(str).str.strip().str.upper()
             df['Estado de atención'] = df['Estado de atención'].astype(str).str.strip().str.upper()
             df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime('%Y-%m-%d')
         
-        # 2. Crear un índice único para la comparación
         key_columns = ['Destino', 'Fecha', 'Producto']
-        old_df = old_df.set_index(key_columns)
-        new_df = new_df.set_index(key_columns)
-
-        # 3. Encontrar las diferencias de estado directamente
-        # Encontramos los índices que están en ambos DataFrames (posibles cambios)
-        indices_comunes = old_df.index.intersection(new_df.index)
         
-        # Filtramos ambos DataFrames para solo comparar los índices comunes
-        old_df_common = old_df.loc[indices_comunes]
-        new_df_common = new_df.loc[indices_comunes]
-
-        # Comparamos la columna de 'Estado de atención' para encontrar las diferencias
-        cambios_de_estado = old_df_common['Estado de atención'] != new_df_common['Estado de atención']
-        indices_con_cambio = cambios_de_estado[cambios_de_estado].index
-
-        if not indices_con_cambio.empty:
-            st.warning(f"🔔 Se detectaron {len(indices_con_cambio)} cambios de estado. Enviando notificaciones...")
+        # Realizar la fusión para encontrar los cambios de estado
+        merged_df = pd.merge(
+            old_df,
+            new_df,
+            on=key_columns,
+            how='inner',
+            suffixes=('_old', '_new')
+        )
+        
+        # Filtrar solo los registros donde el estado ha cambiado
+        cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
+        
+        # Asegurarse de que no haya duplicados en los cambios detectados
+        cambios_df = cambios_df.drop_duplicates(subset=key_columns, keep='last')
+        
+        if not cambios_df.empty:
+            st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
             
-            for index_tuple in indices_con_cambio:
-                destino, _, _ = index_tuple
-                
-                estado_anterior = old_df.loc[index_tuple, 'Estado de atención']
-                estado_nuevo = new_df.loc[index_tuple, 'Estado de atención']
+            for _, row in cambios_df.iterrows():
+                destino = row['Destino']
+                estado_anterior = row['Estado de atención_old']
+                estado_nuevo = row['Estado de atención_new']
                 
                 destino_num = str(destino).split('-')[0].strip()
 
@@ -412,7 +411,7 @@ def check_and_notify_on_change(old_df, new_df):
                 enviar_notificacion_por_destino(destino_num, titulo, mensaje)
         else:
             st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
-
+            
     except Exception as e:
         st.error(f"Error en la lógica de notificación: {e}")
 
