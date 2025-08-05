@@ -371,6 +371,7 @@ def check_and_notify_on_change(old_df, new_df):
     try:
         st.warning("⚠️ Iniciando detección de cambios...")
         
+        # Estandarizar las columnas clave de ambos DataFrames de forma estricta
         def clean_dataframe(df):
             df_cleaned = df.copy()
             for col in ['Destino', 'Producto', 'Estado de atención']:
@@ -388,46 +389,46 @@ def check_and_notify_on_change(old_df, new_df):
         st.info(f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}")
         st.info(f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}")
 
-        key_columns = ['Destino', 'Fecha', 'Producto']
-
-        # Encontrar todas las filas que son diferentes entre los dos DataFrames
-        old_df_clean['source'] = 'old'
-        new_df_clean['source'] = 'new'
+        # --- LÓGICA FINAL Y A PRUEBA DE ERRORES ---
+        cambios_detectados = []
         
-        combined_df = pd.concat([old_df_clean, new_df_clean])
-        inconsistent_rows = combined_df.drop_duplicates(subset=key_columns + ['Estado de atención'], keep=False)
+        # Usar un diccionario para una búsqueda rápida en el DataFrame antiguo
+        old_data_dict = old_df_clean.set_index(['Destino', 'Fecha', 'Producto']).to_dict('index')
 
-        if not inconsistent_rows.empty:
-            st.header("🔍 Inconsistencias detectadas")
-            st.info("El sistema encontró filas que no coinciden perfectamente. Aquí se muestran las filas con sus diferencias:")
-            st.dataframe(inconsistent_rows)
+        for index, row in new_df_clean.iterrows():
+            key = (row['Destino'], row['Fecha'], row['Producto'])
             
-            # --- Aquí va el código de notificaciones (no ha cambiado) ---
-            merged_df = pd.merge(
-                old_df_clean,
-                new_df_clean,
-                on=key_columns,
-                how='inner',
-                suffixes=('_old', '_new')
-            )
-            cambios_df = merged_df[merged_df['Estado de atención_old'] != merged_df['Estado de atención_new']]
-            cambios_df = cambios_df.drop_duplicates(subset=key_columns, keep='last')
+            if key in old_data_dict:
+                old_row = old_data_dict[key]
+                if old_row['Estado de atención'] != row['Estado de atención']:
+                    cambios_detectados.append({
+                        'Destino': row['Destino'],
+                        'Fecha': row['Fecha'],
+                        'Producto': row['Producto'],
+                        'Estado de atención_old': old_row['Estado de atención'],
+                        'Estado de atención_new': row['Estado de atención']
+                    })
 
-            if not cambios_df.empty:
-                st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estatus. Enviando notificaciones...")
-                for _, row in cambios_df.iterrows():
-                    destino = row['Destino']
-                    estado_anterior = row['Estado de atención_old']
-                    estado_nuevo = row['Estado de atención_new']
-                    destino_num = str(destino).split('-')[0].strip()
-                    titulo = f"Actualización en Destino: {destino}"
-                    mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
-                    enviar_notificacion_por_destino(destino_num, titulo, mensaje)
-            else:
-                st.info("✅ No se detectaron cambios de estatus para notificar.")
+        cambios_df = pd.DataFrame(cambios_detectados)
+        
+        if not cambios_df.empty:
+            st.header("🔍 Cambios de estatus detectados")
+            st.info(f"Se detectaron {len(cambios_df)} cambios de estatus. Aquí está la tabla de cambios:")
+            st.dataframe(cambios_df)
+
+            st.warning("🔔 Enviando notificaciones...")
             
+            for _, row in cambios_df.iterrows():
+                destino = row['Destino']
+                estado_anterior = row['Estado de atención_old']
+                estado_nuevo = row['Estado de atención_new']
+                
+                destino_num = str(destino).split('-')[0].strip()
+                titulo = f"Actualización en Destino: {destino}"
+                mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
+                enviar_notificacion_por_destino(destino_num, titulo, mensaje)
         else:
-            st.info("✅ No se detectaron inconsistencias en los datos. No se enviaron notificaciones.")
+            st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
             
     except Exception as e:
         st.error(f"Error en la lógica de notificación: {e}")
