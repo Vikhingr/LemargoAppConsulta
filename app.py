@@ -1,170 +1,187 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
-import datetime
-import altair as alt
+from datetime import datetime
 import requests
-from dotenv import load_dotenv
 from streamlit_autorefresh import st_autorefresh
+from dotenv import load_dotenv
 
-# Carga variables de entorno
 load_dotenv()
-ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID")
-ONESIGNAL_API_KEY = os.getenv("ONESIGNAL_REST_API_KEY")
-ADMIN_USER = os.getenv("ADMIN_USER")
-ADMIN_PASS = os.getenv("ADMIN_PASS")
 
 st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide", initial_sidebar_state="collapsed")
 
-# Estilos
-st.markdown("""
-    <style>
-    body, .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    .card {
-        background-color: #1f2630;
-        padding: 1rem;
-        border-radius: 12px;
-        box-shadow: 0px 0px 10px #222;
-        margin-bottom: 1rem;
-    }
-    .card h4 {
-        margin-top: 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Notificación con OneSignal
+ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID")
+ONESIGNAL_REST_API_KEY = os.getenv("ONESIGNAL_REST_API_KEY")
+ADMIN_USER = os.getenv("ADMIN_USER")
+ADMIN_PASS = os.getenv("ADMIN_PASS")
 
-# Función para enviar notificación push
-def send_push_notification(destino):
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Basic {ONESIGNAL_API_KEY}"
-    }
-    payload = {
-        "app_id": ONESIGNAL_APP_ID,
-        "included_segments": ["All"],
-        "filters": [{"field": "tag", "key": "destino", "relation": "=", "value": destino}],
-        "contents": {"en": f"📦 El estatus del pedido con destino {destino} ha cambiado."},
-        "headings": {"en": "Nuevo cambio de estatus"},
-    }
-    requests.post("https://onesignal.com/api/v1/notifications", json=payload, headers=headers)
+# Constantes
+HISTORICO_PATH = "historico_estatus.xlsx"
+NUEVO_PATH = "nuevo_datos.xlsx"
 
-# Función para suscribirse al destino actual
-def subscribe_to_destino(destino):
-    st.markdown(f"""
-        <script>
-            if (window.OneSignal) {{
-                OneSignal.push(function() {{
-                    OneSignal.sendTag("destino", "{destino}").then(function(tags) {{
-                        console.log("Destino suscrito:", tags);
-                        alert("✅ Suscrito correctamente al destino {destino}. Recibirás notificaciones de cambios.");
-                    }});
-                }});
-            }}
-        </script>
+# Estilo dark + moderno
+def dark_mode_style():
+    st.markdown("""
+        <style>
+            body { color: #f0f2f6; background-color: #0e1117; }
+            .stApp { background-color: #0e1117; }
+            .card { 
+                background-color: #1e222d; 
+                border-radius: 1rem; 
+                padding: 1.2rem; 
+                margin-bottom: 1rem; 
+                box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
+                color: #f0f2f6;
+            }
+            .card h4 { margin: 0 0 0.5rem 0; }
+        </style>
     """, unsafe_allow_html=True)
 
-# Función para mostrar tarjetas de datos
-def mostrar_tarjetas(df_filtrado):
+dark_mode_style()
+
+# Cargar archivos
+def cargar_datos(path):
+    if os.path.exists(path):
+        return pd.read_excel(path)
+    return pd.DataFrame()
+
+def guardar_datos(df, path):
+    df.to_excel(path, index=False)
+
+def limpiar_columnas(df):
+    df.columns = df.columns.str.strip()
+    return df
+
+# Filtrado exacto por número de destino
+def filtrar_por_destino(df, destino):
+    return df[df['Destino'].astype(str) == str(destino)]
+
+# Eliminar duplicados dejando solo el más reciente
+def eliminar_duplicados(df):
+    df = df.sort_values("Fecha", ascending=False)
+    return df.drop_duplicates(subset=["Destino", "Fecha"], keep="first")
+
+# Mostrar los resultados en tarjetas visuales
+def mostrar_resultados(df_filtrado):
+    if df_filtrado.empty:
+        st.info("No se encontraron pedidos para ese destino.")
+        return
+
+    df_filtrado = eliminar_duplicados(df_filtrado)
+
     for _, row in df_filtrado.iterrows():
         with st.container():
             st.markdown(f"""
-                <div class="card">
-                    <h4>🛒 {row['Producto']}</h4>
-                    <p><strong>Turno:</strong> {row['Turno']}</p>
-                    <p><strong>Tonel:</strong> {row['Tonel']}</p>
-                    <p><strong>Capacidad:</strong> {row['Capacidad programada (Litros)']} L</p>
-                    <p><strong>Fecha estimada:</strong> {row['Fecha y hora estimada']}</p>
-                    <p><strong>Fecha facturación:</strong> {row['Fecha y hora de facturación']}</p>
-                    <p><strong>Estatus:</strong> {row['Estado de atención']}</p>
-                </div>
+            <div class="card">
+                <h4>Producto: {row['Producto']}</h4>
+                <p><strong>Turno:</strong> {row['Turno']}</p>
+                <p><strong>Tonel:</strong> {row['Tonel'] if 'Tonel' in row else 'N/D'}</p>
+                <p><strong>Capacidad programada:</strong> {row['Capacidad programada (Litros)']} L</p>
+                <p><strong>Fecha estimada:</strong> {row['Fecha y hora estimada']}</p>
+                <p><strong>Fecha de facturación:</strong> {row['Fecha y hora de facturación']}</p>
+                <p><strong>Estado de atención:</strong> {row['Estado de atención']}</p>
+            </div>
             """, unsafe_allow_html=True)
 
-# Función para login de administrador
+# Subscripción OneSignal
+def mostrar_boton_suscripcion(destino):
+    st.markdown("---")
+    st.subheader("🔔 Notificaciones")
+    st.markdown("Recibirás notificaciones automáticas cuando cambie el estatus de este destino.")
+
+    st.markdown(f"""
+    <script>
+      window.OneSignal = window.OneSignal || [];
+      OneSignal.push(function() {{
+        OneSignal.init({{
+          appId: "{ONESIGNAL_APP_ID}",
+          notifyButton: {{
+            enable: true,
+          }},
+          promptOptions: {{
+            slidedown: {{
+              prompts: [{{
+                type: "category",
+                autoPrompt: true,
+                categories: ["destino_{destino}"]
+              }}]
+            }}
+          }}
+        }});
+      }});
+    </script>
+    """, unsafe_allow_html=True)
+
+# Interfaz de usuario
+def seccion_usuario():
+    st.title("🔍 Consulta tu Pedido")
+    st.markdown("Ingresa el número de destino para consultar su estatus actual.")
+
+    destino_input = st.text_input("Número de destino", max_chars=10)
+
+    if destino_input:
+        df = cargar_datos(HISTORICO_PATH)
+        df = limpiar_columnas(df)
+
+        df_filtrado = filtrar_por_destino(df, destino_input)
+
+        mostrar_resultados(df_filtrado)
+        mostrar_boton_suscripcion(destino_input)
+
+# Sección administrador (login simple + carga de archivo nuevo)
+def seccion_admin():
+    st.title("🛠️ Panel de Administrador")
+
+    uploaded_file = st.file_uploader("Cargar nuevo archivo de datos (.xlsx)", type=["xlsx"])
+    if uploaded_file:
+        df_nuevo = pd.read_excel(uploaded_file)
+        df_nuevo = limpiar_columnas(df_nuevo)
+
+        # Guardar nuevo archivo
+        guardar_datos(df_nuevo, NUEVO_PATH)
+        st.success("✅ Archivo cargado correctamente. Puedes actualizar la base.")
+
+    if st.button("🔄 Actualizar Base"):
+        df_hist = cargar_datos(HISTORICO_PATH)
+        df_nuevo = cargar_datos(NUEVO_PATH)
+
+        if not df_nuevo.empty:
+            df_comb = pd.concat([df_hist, df_nuevo])
+            df_comb.drop_duplicates(subset=["Destino", "Fecha"], keep="last", inplace=True)
+            guardar_datos(df_comb, HISTORICO_PATH)
+            st.success("✅ Base histórica actualizada.")
+        else:
+            st.warning("⚠️ No hay nuevo archivo para actualizar.")
+
+# Login de administrador
 def login_panel():
     with st.sidebar:
-        st.markdown("## 🔐 Acceso administrador")
-        user = st.text_input("Usuario")
-        pwd = st.text_input("Contraseña", type="password")
-        if st.button("Iniciar sesión"):
-            if user == ADMIN_USER and pwd == ADMIN_PASS:
-                st.session_state["admin_logged"] = True
-                st.experimental_rerun()
-            else:
-                st.error("Credenciales incorrectas")
+        st.title("🔐 Acceso Admin")
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+        login = st.button("Iniciar sesión")
 
-# Función sección admin
-def admin_panel():
-    st.title("Panel de Administración")
-    archivo = st.file_uploader("📤 Cargar archivo de pedidos (Excel)", type=["xlsx"])
-    if archivo:
-        nuevo_df = pd.read_excel(archivo)
-        try:
-            historico = pd.read_excel("historico_estatus.xlsx")
-        except FileNotFoundError:
-            historico = pd.DataFrame()
+    if login and username == ADMIN_USER and password == ADMIN_PASS:
+        st.session_state["admin_logged_in"] = True
+        st.experimental_rerun()
+    elif login:
+        st.error("Credenciales incorrectas")
 
-        nuevo_df["ID"] = nuevo_df["Destino"].astype(str) + " | " + pd.to_datetime(nuevo_df["Fecha"]).dt.strftime("%Y-%m-%d")
-
-        if not historico.empty:
-            historico["ID"] = historico["Destino"].astype(str) + " | " + pd.to_datetime(historico["Fecha"]).dt.strftime("%Y-%m-%d")
-            df_comb = pd.merge(nuevo_df, historico, on="ID", how="left", suffixes=('', '_old'))
-            df_novedades = df_comb[df_comb["Estado de atención"] != df_comb["Estado de atención_old"]]
-        else:
-            df_novedades = nuevo_df.copy()
-
-        if not df_novedades.empty:
-            for destino in df_novedades["Destino"].unique():
-                send_push_notification(destino)
-
-        df_final = pd.concat([historico, nuevo_df], ignore_index=True).drop_duplicates(subset=["ID"], keep="last")
-        df_final.to_excel("historico_estatus.xlsx", index=False)
-        st.success("✅ Archivo procesado y actualizado.")
-    else:
-        st.warning("Por favor, carga un archivo Excel.")
-
-# Función sección usuarios
-def usuario_panel():
-    st.title("🔍 Consulta tu pedido por destino")
-
-    try:
-        historico = pd.read_excel("historico_estatus.xlsx")
-    except FileNotFoundError:
-        st.error("No hay datos disponibles aún.")
-        return
-
-    historico["Destino_str"] = historico["Destino"].astype(str)
-
-    query = st.text_input("🔎 Escribe tu número de destino:")
-    if query:
-        df_filtrado = historico[historico["Destino_str"].str.contains(query)]
-        if not df_filtrado.empty:
-            destino_actual = df_filtrado["Destino"].iloc[0]
-            if st.button("🔔 Suscribirme a notificaciones de este destino"):
-                subscribe_to_destino(destino_actual)
-            mostrar_tarjetas(df_filtrado[[
-                "Producto", "Turno", "Tonel", "Capacidad programada (Litros)",
-                "Fecha y hora estimada", "Fecha y hora de facturación", "Estado de atención"
-            ]])
-        else:
-            st.info("No se encontraron pedidos para ese destino.")
-
-# Función principal
 def main():
-    if "admin_logged" not in st.session_state:
-        st.session_state["admin_logged"] = False
+    if "admin_logged_in" not in st.session_state:
+        st.session_state["admin_logged_in"] = False
 
-    modo = st.sidebar.radio("Selecciona el modo:", ["Consulta Usuario", "Administrador"])
-    if modo == "Administrador":
-        if not st.session_state["admin_logged"]:
-            login_panel()
+    menu = st.sidebar.radio("Navegación", ["Consulta", "Administrador"])
+
+    if menu == "Consulta":
+        seccion_usuario()
+    elif menu == "Administrador":
+        if st.session_state["admin_logged_in"]:
+            seccion_admin()
         else:
-            admin_panel()
-    else:
-        usuario_panel()
+            login_panel()
 
-# Ejecutar app
 if __name__ == "__main__":
     main()
