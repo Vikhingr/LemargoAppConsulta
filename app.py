@@ -212,27 +212,67 @@ def admin_dashboard():
         st.info("Aún no hay archivo cargado.")
         return
 
-    st.subheader("📊 Visualización de datos")
+    st.subheader("📊 Visualización y análisis de datos")
 
-    if 'Estado de atención' in df.columns:
-        conteo_estado = df['Estado de atención'].value_counts().reset_index()
+    # Aseguramos que las columnas existan antes de usarlas
+    columnas_disponibles = df.columns.tolist()
+    
+    # --- Filtros interactivos ---
+    if 'Producto' in columnas_disponibles and 'Estado de atención' in columnas_disponibles:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            productos = df['Producto'].unique().tolist()
+            productos_seleccionados = st.multiselect("Filtrar por Producto", options=productos, default=productos)
+        
+        with col2:
+            estados = df['Estado de atención'].unique().tolist()
+            estados_seleccionados = st.multiselect("Filtrar por Estado", options=estados, default=estados)
+        
+        df_filtrado = df[(df['Producto'].isin(productos_seleccionados)) & (df['Estado de atención'].isin(estados_seleccionados))]
+    else:
+        st.warning("Columnas 'Producto' o 'Estado de atención' no encontradas en el archivo.")
+        df_filtrado = df
+
+    if df_filtrado.empty:
+        st.warning("No hay datos que coincidan con los filtros seleccionados.")
+        return
+
+    # --- Gráficas actualizadas ---
+    if 'Estado de atención' in df_filtrado.columns:
+        st.markdown("#### Conteo por Estado de atención")
+        conteo_estado = df_filtrado['Estado de atención'].value_counts().reset_index()
         conteo_estado.columns = ['Estado', 'Cantidad']
-        chart_estado = alt.Chart(conteo_estado).mark_bar().encode(
-            x=alt.X('Estado', sort='-y'),
-            y='Cantidad',
-            color='Estado'
-        ).properties(width=600)
-        st.altair_chart(chart_estado)
+        chart_estado = alt.Chart(conteo_estado).mark_bar(
+            cornerRadiusTopLeft=3,
+            cornerRadiusTopRight=3
+        ).encode(
+            x=alt.X('Estado', sort='-y', title='Estado de atención'),
+            y=alt.Y('Cantidad', title='Número de registros'),
+            tooltip=['Estado', 'Cantidad'],
+            color=alt.Color('Estado', legend=None)
+        ).properties(width=600, title='Distribución por Estado').interactive()
+        st.altair_chart(chart_estado, use_container_width=True)
 
-    if 'Destino' in df.columns:
-        conteo_destino = df['Destino'].value_counts().reset_index()
+    if 'Destino' in df_filtrado.columns:
+        st.markdown("#### Conteo por Destino")
+        conteo_destino = df_filtrado['Destino'].value_counts().reset_index()
         conteo_destino.columns = ['Destino', 'Cantidad']
-        chart_destino = alt.Chart(conteo_destino).mark_bar().encode(
-            x=alt.X('Destino', sort='-y'),
-            y='Cantidad',
-            color='Destino'
-        ).properties(width=600)
-        st.altair_chart(chart_destino)
+        chart_destino = alt.Chart(conteo_destino).mark_bar(
+            cornerRadiusTopLeft=3,
+            cornerRadiusTopRight=3
+        ).encode(
+            x=alt.X('Cantidad', title='Número de registros'),
+            y=alt.Y('Destino', sort='-x', title='Destino'),
+            tooltip=['Destino', 'Cantidad'],
+            color=alt.Color('Destino', legend=None)
+        ).properties(width=600, title='Conteo de Registros por Destino').interactive()
+        st.altair_chart(chart_destino, use_container_width=True)
+
+    # --- Tabla de datos filtrada ---
+    st.markdown("---")
+    st.markdown("#### 📝 Datos filtrados")
+    st.dataframe(df_filtrado)
 
 # --- Lógica de notificaciones mejorada (se comparan Destino y Fecha) ---
 def check_and_notify_on_change(old_df, new_df):
