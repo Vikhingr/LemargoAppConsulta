@@ -4,7 +4,6 @@ import numpy as np
 import os
 import datetime
 import requests
-from dotenv import load_dotenv
 
 # Configuración inicial de la página (DEBE SER LO PRIMERO)
 st.set_page_config(
