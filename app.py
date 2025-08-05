@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import datetime
 import requests
+import matplotlib.pyplot as plt
 
 # Cargar secretos
 ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
@@ -37,16 +38,14 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #3730a3;
     }
-    .card {
+    .sidebar .sidebar-content {
         background-color: #1f2937;
-        padding: 15px;
-        border-radius: 12px;
-        margin-bottom: 10px;
-        border: 1px solid #374151;
+        color: #cbd5e1;
     }
-    .card p {
-        margin: 0;
-        font-size: 14px;
+    .css-1d391kg {  /* área de alertas, info, warning */
+        background-color: #1e293b !important;
+        border-radius: 8px;
+        padding: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -106,20 +105,18 @@ def actualizar_base(nuevo_df):
             mensaje = f"Tu pedido cambió de '{viejo}' a '{nuevo}'."
         enviar_notificacion(destino, mensaje)
 
-# Login centrado, moderno
+# Panel login (sin retorno, para evitar error rerun)
 def login_panel():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("## 🔐 Iniciar sesión como administrador")
-        user = st.text_input("Usuario", key="user_login")
-        password = st.text_input("Contraseña", type="password", key="pass_login")
-        if st.button("Entrar"):
-            if user == ADMIN_USER and password == ADMIN_PASS:
-                st.session_state.admin_logged = True
-                st.success("✅ Acceso concedido")
-                st.experimental_rerun()
-            else:
-                st.error("❌ Credenciales incorrectas")
+    st.markdown("### 🔐 Admin Login")
+    user = st.text_input("Usuario", key="user_login")
+    password = st.text_input("Contraseña", type="password", key="pass_login")
+    if st.button("Entrar"):
+        if user == ADMIN_USER and password == ADMIN_PASS:
+            st.session_state.admin_logged = True
+            st.success("Acceso concedido")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Credenciales incorrectas")
 
 # Panel admin con carga y actualización base
 def admin_section():
@@ -138,7 +135,7 @@ def admin_section():
         except Exception as e:
             st.error(f"Error al actualizar: {str(e)}")
 
-# Sección usuario con búsqueda y tarjetas
+# Sección usuario con búsqueda y suscripción
 def user_section():
     st.markdown("## Consulta de Pedido")
 
@@ -153,6 +150,7 @@ def user_section():
 
     destino_sel = None
     if destino_input:
+        # búsqueda exacta ignorando espacios
         destino_input = destino_input.strip()
         if destino_input in destinos:
             destino_sel = destino_input
@@ -162,6 +160,7 @@ def user_section():
     if destino_sel:
         st.success(f"Destino seleccionado: {destino_sel}")
 
+        # Confirmación de suscripción
         st.markdown("""
             <p style="font-size: 14px; color: #cbd5e1;">
             Puedes suscribirte para recibir notificaciones cuando cambie el estatus de tu pedido.
@@ -183,43 +182,48 @@ def user_section():
                 </script>
             """, unsafe_allow_html=True)
 
-        columnas_mostrar = [
-            "Producto", "Turno", "Tonel", "Capacidad programada (Litros)",
-            "Fecha y hora estimada", "Fecha y hora de facturación", "Estado de atención"
-        ]
         df_filtrado = df_hist[df_hist["Destino"] == destino_sel]
-        df_filtrado = df_filtrado[columnas_mostrar].sort_values("Fecha y hora estimada", ascending=False)
+        df_filtrado = df_filtrado.sort_values("Fecha", ascending=False).reset_index(drop=True)
 
-        for _, row in df_filtrado.iterrows():
-            st.markdown(f"""
-                <div class="card">
-                    <p><strong>Producto:</strong> {row['Producto']}</p>
-                    <p><strong>Turno:</strong> {row['Turno']}</p>
-                    <p><strong>Tonel:</strong> {row['Tonel']}</p>
-                    <p><strong>Capacidad:</strong> {row['Capacidad programada (Litros)']} L</p>
-                    <p><strong>Fecha estimada:</strong> {row['Fecha y hora estimada']}</p>
-                    <p><strong>Facturación:</strong> {row['Fecha y hora de facturación']}</p>
-                    <p><strong>Estado:</strong> {row['Estado de atención']}</p>
-                </div>
-            """, unsafe_allow_html=True)
+        st.dataframe(df_filtrado)
 
-# Función principal
+        st.download_button(
+            label="📥 Descargar reporte CSV",
+            data=df_filtrado.to_csv(index=False).encode(),
+            file_name=f"reporte_{destino_sel}.csv",
+            mime="text/csv"
+        )
+
+        # Historial visual con matplotlib
+        fig, ax = plt.subplots(figsize=(8, 4))
+        try:
+            df_plot = df_filtrado.groupby("Fecha")["Estado de atención"].value_counts().unstack().fillna(0)
+            df_plot.plot(kind="bar", stacked=True, ax=ax, colormap="viridis")
+            ax.set_title(f"Historial de estatus para destino {destino_sel}")
+            ax.set_xlabel("Fecha")
+            ax.set_ylabel("Cantidad")
+            ax.legend(title="Estado")
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"No se pudo generar gráfico: {e}")
+
 def main():
     st.title("📦 Seguimiento de Pedidos")
 
     if "admin_logged" not in st.session_state:
         st.session_state.admin_logged = False
 
+    # Sidebar para cerrar sesión admin
     if st.session_state.admin_logged:
         if st.sidebar.button("🔒 Cerrar sesión Admin"):
             st.session_state.admin_logged = False
             st.experimental_rerun()
 
+    # Mostrar panel admin o login o usuario según estado
     if st.session_state.admin_logged:
         admin_section()
     else:
         login_panel()
-        st.stop()
         user_section()
 
 if __name__ == "__main__":
