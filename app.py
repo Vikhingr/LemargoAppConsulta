@@ -249,6 +249,7 @@ def admin_dashboard():
             st.warning("No hay fechas disponibles para filtrar.")
             return
 
+    # --- DATOS FILTRADOS POR FECHA (PARA GRÁFICAS DIARIAS) ---
     df_filtrado = df[df['Fecha'] == fecha_seleccionada]
     if productos_seleccionados:
         df_filtrado = df_filtrado[df_filtrado['Producto'].isin(productos_seleccionados)]
@@ -259,10 +260,10 @@ def admin_dashboard():
         st.warning("No hay datos que coincidan con los filtros seleccionados.")
         return
 
-    # --- GRÁFICAS Y TABLA ---
     st.markdown("---")
-    
-    # Gráfica 1: ESTADO DE ATENCIÓN
+    st.subheader(f"Análisis del día: {fecha_seleccionada.strftime('%d/%m/%Y')}")
+
+    # Gráfica 1: ESTADO DE ATENCIÓN (del día filtrado)
     if 'Estado de atención' in df_filtrado.columns:
         st.markdown("#### Conteo por Estado de atención")
         conteo_estado = df_filtrado['Estado de atención'].value_counts().reset_index()
@@ -276,10 +277,10 @@ def admin_dashboard():
             x=alt.X('Estado', sort='-y', title='Estado de atención'),
             y=alt.Y('Cantidad', title='Número de registros'),
             tooltip=['Estado', 'Cantidad'],
-        ).properties(title=f'Distribución por Estado en {fecha_seleccionada.strftime("%d/%m/%Y")}')
+        ).properties(title='Distribución por Estado')
         st.altair_chart(chart_estado, use_container_width=True)
 
-    # Gráfica 2: CONTEO POR DESTINO
+    # Gráfica 2: CONTEO POR DESTINO (del día filtrado)
     if 'Destino' in df_filtrado.columns:
         st.markdown("#### Conteo por Destino")
         conteo_destino = df_filtrado['Destino'].value_counts().reset_index()
@@ -293,21 +294,28 @@ def admin_dashboard():
             x=alt.X('Cantidad', title='Número de registros'),
             y=alt.Y('Destino', sort='-x', title='Destino'),
             tooltip=['Destino', 'Cantidad'],
-        ).properties(title=f'Conteo de Registros por Destino en {fecha_seleccionada.strftime("%d/%m/%Y")}')
+        ).properties(title='Conteo de Registros por Destino')
         st.altair_chart(chart_destino, use_container_width=True)
 
-    # --- NUEVAS GRÁFICAS DE TOP 10 ---
     st.markdown("---")
-    st.subheader("🏆 Top 10 Destinos")
+    st.markdown("#### 📝 Datos filtrados del día")
+    st.dataframe(df_filtrado)
 
-    if 'Destino' in df_filtrado.columns and 'Estado de atención' in df_filtrado.columns:
+
+    # --- ANÁLISIS HISTÓRICO ACUMULADO (TOP 10) ---
+    st.markdown("---")
+    st.subheader("🏆 Análisis histórico - Top 10 Destinos")
+    st.info("Estas gráficas se basan en **todos los datos del archivo histórico**.")
+
+    # Aseguramos que las columnas necesarias existan en el DataFrame completo
+    if 'Destino' in df.columns and 'Estado de atención' in df.columns:
         
         # 1. TOP 10 FACTURADOS
-        df_facturados = df_filtrado[df_filtrado['Estado de atención'].str.contains('FACTURADO', case=False, na=False)]
-        if not df_facturados.empty:
-            top_10_facturados = df_facturados['Destino'].value_counts().nlargest(10).reset_index()
+        df_historico_facturados = df[df['Estado de atención'].str.contains('FACTURADO', case=False, na=False)]
+        if not df_historico_facturados.empty:
+            top_10_facturados = df_historico_facturados['Destino'].value_counts().nlargest(10).reset_index()
             top_10_facturados.columns = ['Destino', 'Cantidad']
-            st.markdown("#### Top 10 Destinos más facturados")
+            st.markdown("#### Top 10 Destinos más facturados (Histórico)")
             st.dataframe(top_10_facturados, use_container_width=True)
 
             chart_top_facturados = alt.Chart(top_10_facturados).mark_bar(
@@ -317,16 +325,16 @@ def admin_dashboard():
                 y=alt.Y('Destino', sort='-x', title='Destino'),
                 tooltip=['Destino', 'Cantidad']
             ).properties(
-                title=f'Top 10 Facturados en {fecha_seleccionada.strftime("%d/%m/%Y")}'
+                title='Top 10 Facturados Acumulado'
             )
             st.altair_chart(chart_top_facturados, use_container_width=True)
             
         # 2. TOP 10 CANCELADOS
-        df_cancelados = df_filtrado[df_filtrado['Estado de atención'].str.contains('CANCELADO', case=False, na=False)]
-        if not df_cancelados.empty:
-            top_10_cancelados = df_cancelados['Destino'].value_counts().nlargest(10).reset_index()
+        df_historico_cancelados = df[df['Estado de atención'].str.contains('CANCELADO', case=False, na=False)]
+        if not df_historico_cancelados.empty:
+            top_10_cancelados = df_historico_cancelados['Destino'].value_counts().nlargest(10).reset_index()
             top_10_cancelados.columns = ['Destino', 'Cantidad']
-            st.markdown("#### Top 10 Destinos más cancelados")
+            st.markdown("#### Top 10 Destinos más cancelados (Histórico)")
             st.dataframe(top_10_cancelados, use_container_width=True)
 
             chart_top_cancelados = alt.Chart(top_10_cancelados).mark_bar(
@@ -336,16 +344,16 @@ def admin_dashboard():
                 y=alt.Y('Destino', sort='-x', title='Destino'),
                 tooltip=['Destino', 'Cantidad']
             ).properties(
-                title=f'Top 10 Cancelados en {fecha_seleccionada.strftime("%d/%m/%Y")}'
+                title='Top 10 Cancelados Acumulado'
             )
             st.altair_chart(chart_top_cancelados, use_container_width=True)
 
         # 3. TOP 10 CON DEMORA (no facturados y no cancelados)
-        df_demorados = df_filtrado[~df_filtrado['Estado de atención'].str.contains('FACTURADO|CANCELADO', case=False, na=False)]
-        if not df_demorados.empty:
-            top_10_demorados = df_demorados['Destino'].value_counts().nlargest(10).reset_index()
+        df_historico_demorados = df[~df['Estado de atención'].str.contains('FACTURADO|CANCELADO', case=False, na=False)]
+        if not df_historico_demorados.empty:
+            top_10_demorados = df_historico_demorados['Destino'].value_counts().nlargest(10).reset_index()
             top_10_demorados.columns = ['Destino', 'Cantidad']
-            st.markdown("#### Top 10 Destinos con más demora (Pendientes)")
+            st.markdown("#### Top 10 Destinos con más demora (Histórico)")
             st.dataframe(top_10_demorados, use_container_width=True)
 
             chart_top_demorados = alt.Chart(top_10_demorados).mark_bar(
@@ -355,7 +363,7 @@ def admin_dashboard():
                 y=alt.Y('Destino', sort='-x', title='Destino'),
                 tooltip=['Destino', 'Cantidad']
             ).properties(
-                title=f'Top 10 Pendientes en {fecha_seleccionada.strftime("%d/%m/%Y")}'
+                title='Top 10 Pendientes Acumulado'
             )
             st.altair_chart(chart_top_demorados, use_container_width=True)
 
