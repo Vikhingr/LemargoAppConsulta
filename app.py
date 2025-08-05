@@ -6,6 +6,10 @@ import datetime
 import json
 import hashlib
 import altair as alt
+import zoneinfo
+
+# --- Zona Horaria ---
+cdmx_tz = zoneinfo.ZoneInfo("America/Mexico_City")
 
 # --- OneSignal Config desde secrets ---
 APP_ID = st.secrets.get("ONESIGNAL_APP_ID")
@@ -247,7 +251,7 @@ def admin_panel():
                 if nuevo_hash != hash_guardado:
                     guardar_hash_actual(nuevo_hash)
 
-                    ahora = datetime.datetime.now().isoformat()
+                    ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
                     enviar_notificacion("Actualización", "La base de datos ha sido actualizada.")
@@ -376,7 +380,7 @@ def user_panel():
                 st.info("📅 Última actualización: (fecha inválida)")
                 ultima_fecha = None
         if ultima_fecha:
-            st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')}")
+            st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
     else:
         st.info("📅 Última actualización: (sin datos)")
 
