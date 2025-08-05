@@ -389,23 +389,26 @@ def check_and_notify_on_change(old_df, new_df):
         st.info(f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}")
         st.info(f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}")
 
-        # --- LÓGICA FINAL Y A PRUEBA DE ERRORES ---
+        # --- LÓGICA MANUAL Y A PRUEBA DE ERRORES ---
         cambios_detectados = []
-        
-        # Usar un diccionario para una búsqueda rápida en el DataFrame antiguo
-        old_data_dict = old_df_clean.set_index(['Destino', 'Fecha', 'Producto']).to_dict('index')
+        old_data_dict = {}
 
+        # Construir el diccionario de forma manual
+        for index, row in old_df_clean.iterrows():
+            key = (row['Destino'], row['Fecha'], row['Producto'])
+            old_data_dict[key] = row['Estado de atención']
+
+        # Iterar el nuevo DataFrame y comparar con el diccionario
         for index, row in new_df_clean.iterrows():
             key = (row['Destino'], row['Fecha'], row['Producto'])
             
             if key in old_data_dict:
-                old_row = old_data_dict[key]
-                if old_row['Estado de atención'] != row['Estado de atención']:
+                if old_data_dict[key] != row['Estado de atención']:
                     cambios_detectados.append({
                         'Destino': row['Destino'],
                         'Fecha': row['Fecha'],
                         'Producto': row['Producto'],
-                        'Estado de atención_old': old_row['Estado de atención'],
+                        'Estado de atención_old': old_data_dict[key],
                         'Estado de atención_new': row['Estado de atención']
                     })
 
