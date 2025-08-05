@@ -395,8 +395,13 @@ def check_and_notify_on_change(old_df, new_df):
         # Asegurarse de que no haya duplicados en los cambios detectados
         cambios_df = cambios_df.drop_duplicates(subset=key_columns, keep='last')
         
+        # AÑADIDO: Mostrar los cambios detectados en la interfaz para confirmación
         if not cambios_df.empty:
-            st.warning(f"🔔 Se detectaron {len(cambios_df)} cambios de estado. Enviando notificaciones...")
+            st.header("🔍 Cambios de estatus detectados")
+            st.info(f"Se detectaron {len(cambios_df)} cambios de estatus. Aquí está la tabla de cambios:")
+            st.dataframe(cambios_df[['Destino', 'Fecha', 'Producto', 'Estado de atención_old', 'Estado de atención_new']])
+
+            st.warning("🔔 Enviando notificaciones...")
             
             for _, row in cambios_df.iterrows():
                 destino = row['Destino']
@@ -414,7 +419,6 @@ def check_and_notify_on_change(old_df, new_df):
             
     except Exception as e:
         st.error(f"Error en la lógica de notificación: {e}")
-
 
 # --- NUEVA FUNCIÓN DE ADMINISTRADOR MÁS ROBUSTA ---
 def admin_panel():
