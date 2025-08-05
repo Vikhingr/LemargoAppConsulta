@@ -20,9 +20,9 @@ ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
 # --- Rutas y archivos ---
-HISTORIAL_EXCEL_PATH = "historial_general.xlsx"
+# CAMBIO: Usaremos un archivo JSON como la fuente de verdad, no el Excel
+DB_PATH = "golden_record.json"
 HISTORIAL_PATH = "historial_actualizaciones.json"
-HASH_PATH = "hash_actual.txt"
 
 # --- PWA Setup (manifest e iconos) ---
 def pwa_setup():
@@ -149,60 +149,31 @@ def guardar_historial(fecha_hora):
     except Exception as e:
         st.error(f"Error guardando historial: {e}")
 
-# --- Hash archivo con SHA256 ---
-def calcular_hash_archivo(path):
-    if not os.path.exists(path):
-        return ""
-    try:
-        hasher = hashlib.sha256()
-        with open(path, "rb") as f:
-            buf = f.read(65536)
-            while len(buf) > 0:
-                hasher.update(buf)
-                buf = f.read(65536)
-        return hasher.hexdigest()
-    except Exception as e:
-        st.error(f"Error calculando hash archivo: {e}")
-        return ""
-
-def guardar_hash_actual(hash_valor):
-    try:
-        with open(HASH_PATH, "w") as f:
-            f.write(hash_valor)
-    except Exception as e:
-        st.error(f"Error guardando hash: {e}")
-
-def cargar_hash_guardado():
-    if os.path.exists(HASH_PATH):
-        try:
-            with open(HASH_PATH, "r") as f:
-                return f.read()
-        except Exception:
-            return ""
-    return ""
-
 # --- Datos con cache ---
 @st.cache_data(show_spinner=False)
 def cargar_datos():
-    if os.path.exists(HISTORIAL_EXCEL_PATH):
+    if os.path.exists(DB_PATH):
         try:
-            # --- Lectura de archivo más robusta ---
-            df = pd.read_excel(
-                HISTORIAL_EXCEL_PATH,
-                engine='openpyxl',
-                sheet_name=0,
-                dtype={
-                    'Destino': str,
-                    'Fecha': 'datetime64[ns]',
-                    'Producto': str,
-                    'Estado de atención': str
-                }
-            )
+            df = pd.read_json(DB_PATH)
             return df
         except Exception as e:
-            st.error(f"Error al cargar el archivo histórico: {e}")
+            st.error(f"Error al cargar la base de datos histórica: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
+
+
+def guardar_datos(df):
+    try:
+        # Convertir a formato de fechas ISO para guardar en JSON
+        if 'Fecha' in df.columns:
+            df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime('%Y-%m-%d')
+        
+        # Guardar en JSON para mantener la integridad de los datos
+        df.to_json(DB_PATH, orient='records', date_format='iso')
+
+    except Exception as e:
+        st.error(f"Error al guardar la base de datos: {e}")
+
 
 # --- Login ---
 def login():
@@ -219,11 +190,12 @@ def login():
         else:
             st.error("❌ Usuario o contraseña incorrectos")
 
+
 # --- Dashboard admin ---
 def admin_dashboard():
     df = cargar_datos()
     if df.empty:
-        st.info("Aún no hay archivo cargado.")
+        st.info("Aún no hay base de datos cargada.")
         return
 
     st.subheader("📊 Visualización y análisis de datos")
@@ -233,7 +205,7 @@ def admin_dashboard():
     if 'Fecha' in columnas_disponibles:
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.date
     else:
-        st.warning("La columna 'Fecha' no se encontró en el archivo. No se podrá filtrar por fecha.")
+        st.warning("La columna 'Fecha' no se encontró en la base de datos. No se podrá filtrar por fecha.")
         return
 
     st.markdown("#### Filtros")
@@ -460,7 +432,7 @@ def admin_panel():
 
     if 'last_df' not in st.session_state:
         st.session_state.last_df = pd.DataFrame()
-        if os.path.exists(HISTORIAL_EXCEL_PATH):
+        if os.path.exists(DB_PATH):
             try:
                 st.session_state.last_df = cargar_datos()
             except Exception as e:
@@ -470,8 +442,8 @@ def admin_panel():
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         
-        if os.path.exists(HISTORIAL_EXCEL_PATH):
-            file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
+        if os.path.exists(DB_PATH):
+            file_size_bytes = os.path.getsize(DB_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
             st.markdown(f"💾 **Tamaño actual de la base de datos:** {file_size_mb:.2f} MB")
             
@@ -500,9 +472,8 @@ def admin_panel():
                     if not df_historico_old.empty:
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # --- NUEVA LÓGICA MÁS SIMPLE Y ROBUSTA ---
-                    # Simplemente reemplazamos el archivo viejo con el nuevo
-                    df_nuevo.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    # --- NUEVA LÓGICA: GUARDAR EN JSON ---
+                    guardar_datos(df_nuevo)
                     st.session_state.last_df = df_nuevo.copy()
 
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
@@ -546,7 +517,7 @@ def admin_panel():
     st.header("⚠️ Opciones de mantenimiento")
     if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
         
-        archivos_a_borrar = [HISTORIAL_EXCEL_PATH, HISTORIAL_PATH, HASH_PATH]
+        archivos_a_borrar = [DB_PATH, HISTORIAL_PATH]
         
         borrados = 0
         for archivo in archivos_a_borrar:
@@ -656,7 +627,7 @@ def mostrar_fichas_visuales(df_resultado):
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
-    if not os.path.exists(HISTORIAL_EXCEL_PATH):
+    if not os.path.exists(DB_PATH):
         st.info("Esperando que el admin suba un archivo.")
         return
 
