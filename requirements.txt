@@ -1,8 +1,7 @@
 streamlit>=1.47.1
 pandas
 openpyxl
-matplotlib
-requests
-streamlit-autorefresh
 altair
+requests
 python-dotenv
+streamlit-autorefresh
