@@ -265,7 +265,7 @@ def check_and_notify_on_change(old_df, new_df):
         st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
 
 
-# --- Panel Admin corregido ---
+# --- Dentro de la función admin_panel() ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
@@ -273,6 +273,15 @@ def admin_panel():
 
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
+        
+        # --- NUEVO CÓDIGO PARA MOSTRAR TAMAÑO ---
+        if os.path.exists(HISTORIAL_EXCEL_PATH):
+            file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            st.markdown(f"💾 **Tamaño actual de la base de datos:** {file_size_mb:.2f} MB")
+        # --- FIN DEL NUEVO CÓDIGO ---
+
+        if uploaded_file is not None:
         if uploaded_file is not None:
             try:
                 df_nuevo = pd.read_excel(uploaded_file)
