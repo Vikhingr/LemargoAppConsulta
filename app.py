@@ -185,7 +185,23 @@ def cargar_hash_guardado():
 @st.cache_data(show_spinner=False)
 def cargar_datos():
     if os.path.exists(HISTORIAL_EXCEL_PATH):
-        return pd.read_excel(HISTORIAL_EXCEL_PATH)
+        try:
+            # --- Lectura de archivo más robusta ---
+            df = pd.read_excel(
+                HISTORIAL_EXCEL_PATH,
+                engine='openpyxl',
+                sheet_name=0,
+                dtype={
+                    'Destino': str,
+                    'Fecha': 'datetime64[ns]',
+                    'Producto': str,
+                    'Estado de atención': str
+                }
+            )
+            return df
+        except Exception as e:
+            st.error(f"Error al cargar el archivo histórico: {e}")
+            return pd.DataFrame()
     return pd.DataFrame()
 
 # --- Login ---
@@ -366,7 +382,7 @@ def admin_dashboard():
             st.altair_chart(chart_top_demorados, use_container_width=True)
 
 
-# --- Lógica de notificaciones mejorada (ahora compara por Destino, Fecha y Producto) ---
+# --- Lógica de notificaciones más robusta ---
 def check_and_notify_on_change(old_df, new_df):
     try:
         st.warning("⚠️ Iniciando detección de cambios...")
@@ -436,7 +452,7 @@ def check_and_notify_on_change(old_df, new_df):
     except Exception as e:
         st.error(f"Error en la lógica de notificación: {e}")
 
-# --- NUEVA FUNCIÓN DE ADMINISTRADOR MÁS ROBUSTA ---
+# --- Nueva función de administrador ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
@@ -446,7 +462,7 @@ def admin_panel():
         st.session_state.last_df = pd.DataFrame()
         if os.path.exists(HISTORIAL_EXCEL_PATH):
             try:
-                st.session_state.last_df = pd.read_excel(HISTORIAL_EXCEL_PATH)
+                st.session_state.last_df = cargar_datos()
             except Exception as e:
                 st.error(f"Error al cargar el archivo histórico: {e}")
                 st.session_state.last_df = pd.DataFrame()
@@ -461,7 +477,19 @@ def admin_panel():
             
         if uploaded_file is not None:
             try:
-                df_nuevo = pd.read_excel(uploaded_file)
+                # --- Lectura de archivo más robusta ---
+                df_nuevo = pd.read_excel(
+                    uploaded_file,
+                    engine='openpyxl',
+                    sheet_name=0,
+                    dtype={
+                        'Destino': str,
+                        'Fecha': 'datetime64[ns]',
+                        'Producto': str,
+                        'Estado de atención': str
+                    }
+                )
+
                 st.write("Vista previa del archivo cargado:")
                 st.dataframe(df_nuevo.head())
 
@@ -640,7 +668,7 @@ def user_panel():
             ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
             st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
         except Exception:
-            st.info("📅 Última actualización: (fecha inválida)")
+            st.info("📅 Última actualización: (sin datos)")
     else:
         st.info("📅 Última actualización: (sin datos)")
 
