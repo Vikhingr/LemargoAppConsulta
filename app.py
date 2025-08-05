@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
-import datetime
 import requests
 
-# Configuración inicial de la página (DEBE SER LO PRIMERO)
+# Configuración inicial (DEBE SER LO PRIMERO)
 st.set_page_config(
     page_title="Seguimiento de Pedidos",
     layout="wide",
@@ -13,20 +11,32 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# Reemplaza todo el bloque de carga de variables con:
-def get_config(key):
-    try:
-        return st.secrets[key]
-    except Exception as e:
-        st.error(f"Error cargando configuración: {str(e)}")
-        return None
+# ---------------------------------------------
+# 1. Configuración de Secrets (Streamlit Cloud)
+# ---------------------------------------------
 
-ONESIGNAL_APP_ID = get_config("ONESIGNAL_APP_ID")
-ONESIGNAL_REST_API_KEY = get_config("ONESIGNAL_REST_API_KEY")
-ADMIN_USER = get_config("ADMIN_USER")
-ADMIN_PASS = get_config("ADMIN_PASS")
+# Verificación de secrets (para debug)
+st.sidebar.write("🔍 Secrets cargados:", list(st.secrets.keys()))
 
-# Estilos CSS personalizados
+try:
+    # Carga de variables desde secrets
+    ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
+    ONESIGNAL_REST_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
+    ADMIN_USER = st.secrets["ADMIN_USER"]
+    ADMIN_PASS = st.secrets["ADMIN_PASS"]
+    
+    # Verificación básica
+    if not all([ONESIGNAL_APP_ID, ONESIGNAL_REST_API_KEY, ADMIN_USER, ADMIN_PASS]):
+        st.error("❌ Faltan variables esenciales en los secrets")
+        st.stop()
+        
+except Exception as e:
+    st.error(f"❌ Error crítico cargando configuración: {str(e)}")
+    st.stop()
+
+# ---------------------------------------------
+# 2. Estilos CSS
+# ---------------------------------------------
 st.markdown("""
     <style>
     .stApp {
@@ -35,18 +45,19 @@ st.markdown("""
     }
     .stTextInput>div>div>input {
         color: #000000;
+        background-color: #ffffff;
     }
     .st-b7 {
-        color: white;
+        color: white !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------
-# Funciones principales (optimizadas)
+# 3. Funciones Principales (Optimizadas)
 # ---------------------------------------------
 
-@st.cache_data(ttl=60)  # Cache para mejor rendimiento
+@st.cache_data(ttl=60, show_spinner="Cargando datos...")
 def cargar_datos():
     """Carga los datos con manejo robusto de errores"""
     try:
@@ -55,20 +66,22 @@ def cargar_datos():
         
         df = pd.read_excel("historico_estatus.xlsx")
         
-        # Conversión segura de tipos de datos
+        # Conversión y limpieza
         df["Destino"] = df["Destino"].astype(str).str.strip()
         
-        # Validar columnas esenciales
-        columnas_requeridas = ["Destino", "Producto", "Estado de atención"]
-        for col in columnas_requeridas:
-            if col not in df.columns:
-                st.error(f"Columna faltante: {col}")
-                return pd.DataFrame()
-                
+        # Validación de columnas
+        required_columns = ["Destino", "Producto", "Estado de atención", 
+                          "Capacidad programada (Litros)", "Fecha y hora estimada"]
+        missing = [col for col in required_columns if col not in df.columns]
+        
+        if missing:
+            st.error(f"Columnas faltantes: {', '.join(missing)}")
+            return pd.DataFrame()
+            
         return df
     
     except Exception as e:
-        st.error(f"Error al cargar datos: {str(e)}")
+        st.error(f"📂 Error al cargar datos: {str(e)}")
         return pd.DataFrame()
 
 def mostrar_tarjetas(resultados):
@@ -88,7 +101,11 @@ def mostrar_tarjetas(resultados):
         
         with st.container():
             st.markdown(f"""
-                <div style='background-color:{color}; padding:15px; border-radius:10px; margin:10px 0;'>
+                <div style='background-color:{color}; 
+                            padding:15px; 
+                            border-radius:10px; 
+                            margin:10px 0;
+                            color:white;'>
                     <b>Producto:</b> {row.get('Producto', 'N/A')}<br>
                     <b>Destino:</b> {row.get('Destino', 'N/A')}<br>
                     <b>Estado:</b> {estado}<br>
@@ -97,63 +114,91 @@ def mostrar_tarjetas(resultados):
                 </div>
             """, unsafe_allow_html=True)
 
+# ---------------------------------------------
+# 4. Secciones de la Aplicación
+# ---------------------------------------------
+
 def seccion_usuario():
     """Interfaz para usuarios normales"""
     st.title("📦 Seguimiento de Pedidos")
     
-    destino = st.text_input("Ingrese número de destino", key="busqueda_destino").strip()
-    
-    if destino:
-        df = cargar_datos()
-        if not df.empty:
-            resultados = df[df["Destino"].str.contains(destino, case=False, na=False)]
-            
-            if not resultados.empty:
-                st.success(f"🔍 Resultados para: {destino}")
-                mostrar_tarjetas(resultados)
-            else:
-                st.warning("No se encontraron pedidos para este destino")
-        else:
-            st.warning("Base de datos vacía. Contacte al administrador")
+    with st.form("busqueda_form"):
+        destino = st.text_input("Ingrese número de destino", key="busqueda_destino").strip()
+        submitted = st.form_submit_button("Buscar")
+        
+        if submitted and destino:
+            with st.spinner("Buscando pedidos..."):
+                df = cargar_datos()
+                
+                if not df.empty:
+                    resultados = df[df["Destino"].str.contains(destino, case=False, na=False)]
+                    
+                    if not resultados.empty:
+                        st.success(f"🔍 {len(resultados)} resultados para: {destino}")
+                        mostrar_tarjetas(resultados)
+                    else:
+                        st.warning("No se encontraron pedidos para este destino")
+                else:
+                    st.warning("Base de datos vacía. Contacte al administrador")
 
 def seccion_admin():
-    """Panel de administración"""
+    """Panel de administración mejorado"""
     st.title("🔧 Panel de Administración")
     
     # Barra de herramientas
-    if st.button("🚪 Cerrar sesión"):
+    if st.button("🚪 Cerrar sesión", key="logout_btn"):
         st.session_state.admin_logged = False
         st.rerun()
     
-    st.subheader("Cargar nuevos datos")
-    archivo = st.file_uploader("Subir archivo Excel", type=["xlsx"])
+    st.subheader("Gestión de Datos")
+    tab1, tab2 = st.tabs(["Cargar Datos", "Estadísticas"])
     
-    if archivo:
-        try:
-            nuevo_df = pd.read_excel(archivo)
-            
-            # Validación básica
-            if "Destino" not in nuevo_df.columns:
-                st.error("El archivo debe contener columna 'Destino'")
-                return
+    with tab1:
+        archivo = st.file_uploader("Subir archivo Excel", type=["xlsx"], key="file_uploader")
+        
+        if archivo:
+            try:
+                nuevo_df = pd.read_excel(archivo)
                 
-            # Guardar datos
-            nuevo_df.to_excel("historico_estatus.xlsx", index=False)
-            st.success("✅ Datos actualizados correctamente!")
-            st.balloons()
-            
-        except Exception as e:
-            st.error(f"Error al procesar archivo: {str(e)}")
+                # Validación mejorada
+                required = ["Destino", "Producto", "Estado de atención"]
+                missing = [col for col in required if col not in nuevo_df.columns]
+                
+                if missing:
+                    st.error(f"Faltan columnas: {', '.join(missing)}")
+                else:
+                    # Procesamiento seguro
+                    nuevo_df["Destino"] = nuevo_df["Destino"].astype(str).str.strip()
+                    nuevo_df.to_excel("historico_estatus.xlsx", index=False)
+                    
+                    st.success("✅ Datos actualizados correctamente!")
+                    st.balloons()
+                    
+                    # Vista previa
+                    with st.expander("Ver datos cargados"):
+                        st.dataframe(nuevo_df.head())
+                        
+            except Exception as e:
+                st.error(f"❌ Error al procesar archivo: {str(e)}")
+    
+    with tab2:
+        if os.path.exists("historico_estatus.xlsx"):
+            df = cargar_datos()
+            if not df.empty:
+                st.metric("Total Pedidos", len(df))
+                st.bar_chart(df["Estado de atención"].value_counts())
+            else:
+                st.warning("No hay datos disponibles")
 
 def login_panel():
-    """Formulario de login"""
+    """Formulario de login mejorado"""
     st.title("🔐 Acceso Administrador")
     
-    with st.form("login_form"):
-        usuario = st.text_input("Usuario")
-        contraseña = st.text_input("Contraseña", type="password")
+    with st.form("login_form", clear_on_submit=True):
+        usuario = st.text_input("Usuario", key="user_input")
+        contraseña = st.text_input("Contraseña", type="password", key="pass_input")
         
-        if st.form_submit_button("Ingresar"):
+        if st.form_submit_button("Ingresar", type="primary"):
             if usuario == ADMIN_USER and contraseña == ADMIN_PASS:
                 st.session_state.admin_logged = True
                 st.rerun()
@@ -161,7 +206,7 @@ def login_panel():
                 st.error("Credenciales incorrectas")
 
 # ---------------------------------------------
-# Estructura principal de la aplicación
+# 5. Estructura Principal
 # ---------------------------------------------
 
 def main():
@@ -171,7 +216,11 @@ def main():
     
     # Menú de navegación
     st.sidebar.title("Navegación")
-    opcion = st.sidebar.radio("Seleccione:", ["Usuario", "Administrador"])
+    opcion = st.sidebar.radio(
+        "Seleccione:", 
+        ["Usuario", "Administrador"],
+        index=0
+    )
     
     # Lógica de routing
     if opcion == "Usuario":
