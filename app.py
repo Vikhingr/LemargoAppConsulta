@@ -593,4 +593,103 @@ def user_panel():
         ultima_fecha_str = historial[-1]
         try:
             ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
-            ultima_fecha_cdmx
+            ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
+            st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
+        except Exception:
+            st.info("📅 Última actualización: (fecha inválida)")
+    else:
+        st.info("📅 Última actualización: (sin datos)")
+
+    try:
+        df = cargar_datos()
+    except Exception as e:
+        st.error(f"Error al leer archivo: {e}")
+        return
+
+    if 'Destino' not in df.columns:
+        st.error("❌ Falta la columna 'Destino'")
+        return
+    if 'Fecha' not in df.columns:
+        st.error("❌ Falta la columna 'Fecha' para ordenar por día.")
+        return
+
+    pedido = st.text_input("Ingresa tu número de destino")
+    if pedido:
+        columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
+                    'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
+        columnas_validas = [col for col in columnas if col in df.columns]
+
+        df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
+        # Limpiamos los datos del DataFrame para que coincidan con la búsqueda del usuario
+        df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
+
+        resultado = df[df['Destino_num'] == pedido.strip()]
+
+        if not resultado.empty:
+            destino_para_suscripcion = resultado['Destino'].iloc[0]
+            # --- CORREGIDO: obtener el número de destino para la suscripción ---
+            destino_num_para_suscripcion = str(destino_para_suscripcion).split('-')[0].strip().upper()
+
+            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_num_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
+            st.info(descripcion)
+            
+            if st.button(f"🔔 Suscribirme al Destino {destino_num_para_suscripcion}", key=f"sub_{destino_num_para_suscripcion}"):
+                
+                st.success(f"¡Suscripción exitosa! Ahora recibirás notificaciones para el Destino {destino_num_para_suscripcion}.")
+
+                st.markdown(f"""
+                <script>
+                window.OneSignal = window.OneSignal || [];
+                OneSignal.push(function() {{
+                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
+                        if (isEnabled) {{
+                            OneSignal.sendTags({{
+                                destino_id: "{destino_num_para_suscripcion}"
+                            }}).then(function(tags) {{
+                                console.log('Suscrito al destino:', tags);
+                            }});
+                        }} else {{
+                            // Si no tiene permiso, volvemos a pedirlo explícitamente
+                            OneSignal.showSlidedownPrompt();
+                            alert('Por favor, activa las notificaciones para poder suscribirte.');
+                        }}
+                    }});
+                }});
+                </script>
+                """, unsafe_allow_html=True)
+                try:
+                    st.experimental_rerun()
+                except AttributeError:
+                    st.rerun()
+            
+            resultado = resultado[columnas_validas].sort_values(by='Fecha', ascending=False)
+            
+            for fecha, grupo in resultado.groupby('Fecha'):
+                fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
+                st.subheader(f"📅 Detalles del día: {fecha_formateada}")
+                mostrar_fichas_visuales(grupo)
+        else:
+            st.warning("No se encontraron resultados.")
+
+# --- App principal ---
+def main():
+    pwa_setup()
+    onesignal_web_push_setup()
+    pwa_install_prompt()
+
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+
+    menu = st.sidebar.radio("📋 Menú principal", ["Consultar estatus", "Admin Login"])
+
+    if menu == "Consultar estatus":
+        user_panel()
+    elif menu == "Admin Login":
+        if not st.session_state.logged_in:
+            login()
+        else:
+            st.success("🛠️ Sesión iniciada como administrador")
+            admin_panel()
+
+if __name__ == "__main__":
+    main()
