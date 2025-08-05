@@ -311,7 +311,7 @@ def user_panel():
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
-        resultado = df[df['Destino'].astype(str).str.contains(pedido, case=False)]
+        resultado = df[df['Destino'].astype(str).str.strip().str.lower() == pedido.strip().lower()]
 
         if not resultado.empty:
             resultado = resultado[columnas_validas].reset_index(drop=True)
