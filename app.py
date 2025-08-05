@@ -1,4 +1,12 @@
-import streamlit as st import pandas as pd import numpy as np import os import datetime import altair as alt import requests from streamlit_autorefresh import st_autorefresh from dotenv import load_dotenv
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import datetime
+import altair as alt
+import requests
+from streamlit_autorefresh import st_autorefresh
+from dotenv import load_dotenv
 
 load_dotenv()
 
