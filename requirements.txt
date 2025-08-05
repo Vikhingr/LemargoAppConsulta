@@ -1,8 +1,5 @@
-streamlit
-pandas
-numpy
-altair
-requests
-python-dotenv
-openpyxl
-streamlit-autorefresh
+streamlit>=1.35.0
+pandas>=2.2.0
+requests>=2.31.0
+altair>=5.3.0
+openpyxl>=3.1.2
