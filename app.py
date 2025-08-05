@@ -20,14 +20,24 @@ st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide", page_icon
 st.markdown("<style>body { background-color: #0e1117; color: white; }</style>", unsafe_allow_html=True)
 
 # ---------------------------------------------
-# Funciones
+# Funciones corregidas
 # ---------------------------------------------
 
 def cargar_datos():
     try:
-        return pd.read_excel("historico_estatus.xlsx")
+        df = pd.read_excel("historico_estatus.xlsx")
+        
+        # Conversión segura de tipos de datos
+        df["Destino"] = df["Destino"].astype(str).str.strip()
+        df["Fecha y hora estimada"] = pd.to_datetime(df["Fecha y hora estimada"], errors='coerce')
+        df["Fecha y hora de facturación"] = pd.to_datetime(df["Fecha y hora de facturación"], errors='coerce')
+        
+        return df
     except FileNotFoundError:
-        st.warning("No se encontró el archivo histórico.")
+        st.error("Error: El archivo 'historico_estatus.xlsx' no existe. Carga un archivo en la sección Admin.")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error al cargar datos: {str(e)}")
         return pd.DataFrame()
 
 def mostrar_tarjetas(resultados):
@@ -56,29 +66,6 @@ def mostrar_tarjetas(resultados):
                 </div>
             """, unsafe_allow_html=True)
 
-def suscribir_usuario(destino):
-    player_id = st.session_state.get("player_id")
-    if not player_id:
-        st.warning("No se detectó tu suscripción push. Asegúrate de aceptar las notificaciones.")
-        return
-
-    tag_url = f"https://onesignal.com/api/v1/players/{player_id}"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
-    }
-    data = {
-        "tags": {
-            f"destino_{destino}": "1"
-        },
-        "app_id": ONESIGNAL_APP_ID
-    }
-    response = requests.put(tag_url, headers=headers, json=data)
-    if response.status_code == 200:
-        st.success(f"✅ Te has suscrito correctamente al destino {destino}. Recibirás notificaciones si hay cambios.")
-    else:
-        st.error("❌ Error al suscribirse. Intenta nuevamente.")
-
 def seccion_usuario():
     st.title("📦 Seguimiento de Pedido por Destino")
     st.markdown("Ingresa el número de destino exacto para ver el estado actual de tu pedido.")
@@ -88,64 +75,75 @@ def seccion_usuario():
     if destino_input:
         df = cargar_datos()
         if not df.empty:
-            df["Destino"] = df["Destino"].astype(str)
-            resultados = df[df["Destino"] == destino_input]
-
+            resultados = df[df["Destino"].str.contains(destino_input, case=False, na=False)]
+            
             if not resultados.empty:
                 mostrar_tarjetas(resultados)
-
-                # Botón de suscripción
+                
                 if st.button("🔔 Suscribirme a notificaciones de este destino"):
                     suscribir_usuario(destino_input)
-
-                with st.expander("¿Qué ocurre si me suscribo?"):
-                    st.markdown("Recibirás una notificación push en tu celular o navegador cuando el estado de tu pedido cambie.")
             else:
-                st.warning("No se encontraron pedidos para ese destino.")
+                st.warning("No se encontraron pedidos para ese destino. Verifica el número.")
+        else:
+            st.warning("No hay datos disponibles. Contacta al administrador.")
 
 def seccion_admin():
     st.title("🔒 Administración")
     st.markdown("Solo personal autorizado")
+    
+    # Botón de cierre de sesión
+    if st.button("Cerrar sesión"):
+        st.session_state["admin_logged"] = False
+        st.experimental_rerun()
 
     uploaded_file = st.file_uploader("Cargar nuevo archivo Excel", type=["xlsx"])
     if uploaded_file:
         try:
             nuevo_df = pd.read_excel(uploaded_file)
-            historico = cargar_datos()
-
-            nuevo_df["ID"] = nuevo_df["Destino"].astype(str) + "_" + pd.to_datetime(nuevo_df["Fecha"]).dt.strftime("%Y-%m-%d")
-            historico["ID"] = historico["Destino"].astype(str) + "_" + pd.to_datetime(historico["Fecha"]).dt.strftime("%Y-%m-%d")
-
-            df_combinado = pd.concat([historico, nuevo_df], ignore_index=True)
-            df_final = df_combinado.drop_duplicates(subset="ID", keep="last")
-
-            df_final.to_excel("historico_estatus.xlsx", index=False)
-            st.success("Archivo actualizado correctamente.")
+            
+            # Validación básica de columnas
+            columnas_requeridas = ["Destino", "Producto", "Estado de atención"]
+            if not all(col in nuevo_df.columns for col in columnas_requeridas):
+                st.error(f"El archivo debe contener estas columnas: {', '.join(columnas_requeridas)}")
+                return
+                
+            # Procesamiento de datos
+            nuevo_df["ID"] = nuevo_df["Destino"].astype(str) + "_" + pd.to_datetime(nuevo_df["Fecha"]).dt.strftime("%Y%m%d")
+            nuevo_df["Destino"] = nuevo_df["Destino"].astype(str).str.strip()
+            
+            # Guardar archivo
+            nuevo_df.to_excel("historico_estatus.xlsx", index=False)
+            st.success("Datos actualizados correctamente!")
+            st.balloons()
+            
         except Exception as e:
-            st.error(f"Error al procesar el archivo: {e}")
+            st.error(f"Error grave al procesar el archivo: {str(e)}")
 
 def login_panel():
     st.sidebar.markdown("## Ingreso Administrador")
     username = st.sidebar.text_input("Usuario")
     password = st.sidebar.text_input("Contraseña", type="password")
+    
     if st.sidebar.button("Ingresar"):
         if username == ADMIN_USER and password == ADMIN_PASS:
             st.session_state["admin_logged"] = True
             st.experimental_rerun()
         else:
             st.sidebar.error("Credenciales incorrectas")
-    if st.session_state.get("admin_logged"):
-        seccion_admin()
 
 def main():
-    st_autorefresh(interval=0)  # No auto refresh
+    st_autorefresh(interval=0)
     st.markdown("<h2 style='color:#00adb5;'>Sistema de Seguimiento Lemargo</h2>", unsafe_allow_html=True)
 
     menu = st.sidebar.radio("Navegación", ["Usuario", "Administrador"], index=0)
+    
     if menu == "Usuario":
         seccion_usuario()
     else:
-        login_panel()
+        if st.session_state.get("admin_logged"):
+            seccion_admin()
+        else:
+            login_panel()
 
 if __name__ == "__main__":
     main()
