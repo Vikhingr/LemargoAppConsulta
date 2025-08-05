@@ -370,17 +370,12 @@ def user_panel():
     if historial:
         ultima_fecha_str = historial[-1]
         try:
-            # Intentar ISO 8601
             ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
-        except ValueError:
-            try:
-                # Intentar formato dd/mm/yyyy HH:MM:SS
-                ultima_fecha = datetime.datetime.strptime(ultima_fecha_str, "%d/%m/%Y %H:%M:%S")
-            except Exception:
-                st.info("📅 Última actualización: (fecha inválida)")
-                ultima_fecha = None
-        if ultima_fecha:
-            st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
+            # Convertir a zona horaria CDMX
+            ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
+            st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
+        except Exception:
+            st.info("📅 Última actualización: (fecha inválida)")
     else:
         st.info("📅 Última actualización: (sin datos)")
 
