@@ -311,6 +311,7 @@ def user_panel():
                     'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
         columnas_validas = [col for col in columnas if col in df.columns]
 
+        # Búsqueda exacta (ignorando mayúsculas y espacios)
         resultado = df[df['Destino'].astype(str).str.strip().str.lower() == pedido.strip().lower()]
 
         if not resultado.empty:
@@ -320,6 +321,7 @@ def user_panel():
             }))
         else:
             st.warning("No se encontraron resultados.")
+
 
 # --- App principal ---
 def main():
