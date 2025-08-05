@@ -324,7 +324,10 @@ def mostrar_fichas_visuales(df_resultado):
             icono = "ℹ️"
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
-
+        
+        # Obtiene el valor de la columna 'Fecha'
+        fecha_general = fila.get('Fecha', None)
+        
         ficha_html = f"""
         <div style="
             background-color: {color_rgba};
@@ -339,12 +342,24 @@ def mostrar_fichas_visuales(df_resultado):
         ">
             <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
-                <b>Fecha:</b> {fila.get('Fecha', 'N/A')}<br>
+        """
+        
+        # Muestra la fecha principal solo si no es nula
+        if pd.notnull(fecha_general):
+            # Formateamos la fecha si es un objeto datetime, si no la dejamos como está
+            if isinstance(fecha_general, datetime.datetime):
+                fecha_str = fecha_general.strftime('%Y-%m-%d')
+            else:
+                fecha_str = str(fecha_general)
+            
+            ficha_html += f"<b>Fecha:</b> {fecha_str}<br>"
+        
+        ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
         """
-
+        
         fecha_estimada = fila.get('Fecha y hora estimada', None)
         fecha_facturacion = fila.get('Fecha y hora de facturación', None)
 
@@ -358,7 +373,6 @@ def mostrar_fichas_visuales(df_resultado):
             </div>
         </div>
         """
-
         st.markdown(ficha_html, unsafe_allow_html=True)
 
 
