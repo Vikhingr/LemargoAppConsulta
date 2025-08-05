@@ -371,6 +371,11 @@ def check_and_notify_on_change(old_df, new_df):
     try:
         st.warning("⚠️ Iniciando detección de cambios...")
         
+        # --- LÍNEAS DE DIAGNÓSTICO ---
+        st.info(f"Diagnóstico - Filas en archivo antiguo: {len(old_df)}")
+        st.info(f"Diagnóstico - Filas en archivo nuevo: {len(new_df)}")
+        # --- FIN LÍNEAS DE DIAGNÓSTICO ---
+        
         # Estandarizar las columnas clave de ambos DataFrames
         for df in [old_df, new_df]:
             df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
