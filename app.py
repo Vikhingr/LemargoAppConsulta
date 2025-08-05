@@ -13,22 +13,18 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# Cargar variables
-ONESIGNAL_APP_ID = get_secret("ONESIGNAL_APP_ID")
-ONESIGNAL_REST_API_KEY = get_secret("ONESIGNAL_REST_API_KEY")
-ADMIN_USER = get_secret("ADMIN_USER")
-ADMIN_PASS = get_secret("ADMIN_PASS")
+# Reemplaza todo el bloque de carga de variables con:
+def get_config(key):
+    try:
+        return st.secrets[key]
+    except Exception as e:
+        st.error(f"Error cargando configuración: {str(e)}")
+        return None
 
-# ---------------------------------------------
-# 2. Verificación de que las variables se cargaron (para debug)
-# ---------------------------------------------
-st.sidebar.write("🔍 Variables cargadas:")
-st.sidebar.json({
-    "APP_ID": bool(ONESIGNAL_APP_ID),
-    "API_KEY": bool(ONESIGNAL_REST_API_KEY),
-    "ADMIN_USER": bool(ADMIN_USER),
-    "ADMIN_PASS": bool(ADMIN_PASS)
-})
+ONESIGNAL_APP_ID = get_config("ONESIGNAL_APP_ID")
+ONESIGNAL_REST_API_KEY = get_config("ONESIGNAL_REST_API_KEY")
+ADMIN_USER = get_config("ADMIN_USER")
+ADMIN_PASS = get_config("ADMIN_PASS")
 
 # Estilos CSS personalizados
 st.markdown("""
