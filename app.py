@@ -440,22 +440,36 @@ def admin_panel():
 
                 if st.button("Cargar y actualizar base histórica"):
                     
-                    # --- Lógica de reemplazo completo de la base histórica ---
                     df_historico_old = pd.DataFrame()
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
-
-                    # Si hay un histórico, verificamos los cambios antes de reemplazar
+                    
+                    # Verificamos los cambios antes de fusionar
                     if not df_historico_old.empty:
                         check_and_notify_on_change(df_historico_old, df_nuevo)
+                    
+                    # Concatenamos y eliminamos duplicados para limpiar la base
+                    combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
 
-                    # Reemplazamos la base histórica por completo con el nuevo archivo
-                    df_nuevo.to_excel(HISTORIAL_EXCEL_PATH, index=False)
+                    if 'Producto' in combined_df.columns:
+                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        # Limpiamos antes de eliminar duplicados para evitar errores por espacios o mayúsculas
+                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
+                        combined_df['Producto'] = combined_df['Producto'].astype(str).str.strip().str.upper()
+                        combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha', 'Producto'], keep='first')
+                    else:
+                        st.warning("La columna 'Producto' no se encontró. No se puede evitar la duplicación de productos.")
+                        combined_df['Fecha'] = pd.to_datetime(combined_df['Fecha'])
+                        combined_df['Destino'] = combined_df['Destino'].astype(str).str.strip().str.upper()
+                        combined_df = combined_df.sort_values(by=['Fecha'], ascending=False).drop_duplicates(subset=['Destino', 'Fecha'], keep='first')
+                    
+                    # Guardamos la nueva base acumulada y limpia
+                    combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
 
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
-                    st.success("✅ Base de datos histórica reemplazada con éxito.")
+                    st.success("✅ Base de datos histórica actualizada y acumulada.")
                     st.cache_data.clear()
 
                     try:
@@ -527,10 +541,13 @@ def mostrar_fichas_visuales(df_resultado):
         destino = fila.get('Destino', '')
         fecha_general = fila.get('Fecha', None)
 
-        if pd.notnull(fecha_general) and isinstance(fecha_general, datetime.datetime):
-            fecha_general = fecha_general.strftime('%d/%m/%Y')
-        else:
-             fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
+        if pd.notnull(fecha_general):
+            # Asegurar que el formato de fecha sea correcto para el display
+            try:
+                fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
+            except (ValueError, TypeError):
+                # En caso de error, mostramos el valor tal cual
+                fecha_general = str(fecha_general)
 
         ficha_html = f"""
         <div style="
