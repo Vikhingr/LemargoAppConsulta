@@ -325,8 +325,6 @@ def mostrar_fichas_visuales(df_resultado):
 
         color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
 
-        fecha = fila.get('Fecha', 'N/A')
-        
         ficha_html = f"""
         <div style="
             background-color: {color_rgba};
@@ -341,7 +339,7 @@ def mostrar_fichas_visuales(df_resultado):
         ">
             <div style="font-size: 18px;">{icono} <b>{fila.get('Destino', '')}</b></div>
             <div style="font-size: 14px; margin-top: 4px;">
-                <b>Fecha:</b> {fecha}<br>
+                <b>Fecha:</b> {fila.get('Fecha', 'N/A')}<br>
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
