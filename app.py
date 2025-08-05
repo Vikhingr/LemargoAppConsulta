@@ -443,7 +443,7 @@ def admin_panel():
     current_time = datetime.datetime.now()
     
     for msg_type, msg, timestamp in st.session_state.messages:
-        if (current_time - timestamp).total_seconds() < 20:
+        if (current_time - timestamp).total_seconds() < 10:
             messages_to_keep.append((msg_type, msg, timestamp))
             if msg_type == 'success':
                 st.success(msg)
