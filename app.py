@@ -14,12 +14,22 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# Cargar variables de entorno
-load_dotenv()
-ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID")
-ONESIGNAL_REST_API_KEY = os.getenv("ONESIGNAL_REST_API_KEY")
-ADMIN_USER = os.getenv("ADMIN_USER")
-ADMIN_PASS = os.getenv("ADMIN_PASS")
+# Cargar variables
+ONESIGNAL_APP_ID = get_secret("ONESIGNAL_APP_ID")
+ONESIGNAL_REST_API_KEY = get_secret("ONESIGNAL_REST_API_KEY")
+ADMIN_USER = get_secret("ADMIN_USER")
+ADMIN_PASS = get_secret("ADMIN_PASS")
+
+# ---------------------------------------------
+# 2. Verificación de que las variables se cargaron (para debug)
+# ---------------------------------------------
+st.sidebar.write("🔍 Variables cargadas:")
+st.sidebar.json({
+    "APP_ID": bool(ONESIGNAL_APP_ID),
+    "API_KEY": bool(ONESIGNAL_REST_API_KEY),
+    "ADMIN_USER": bool(ADMIN_USER),
+    "ADMIN_PASS": bool(ADMIN_PASS)
+})
 
 # Estilos CSS personalizados
 st.markdown("""
