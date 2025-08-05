@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
-import datetime
 import requests
 from dotenv import load_dotenv
-from streamlit_autorefresh import st_autorefresh
 
 # Carga variables de entorno
 load_dotenv()
@@ -15,7 +13,7 @@ ADMIN_PASS = os.getenv("ADMIN_PASS")
 
 st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide", initial_sidebar_state="collapsed")
 
-# Estilos
+# Estilos globales
 st.markdown("""
     <style>
     body, .stApp {
@@ -23,19 +21,24 @@ st.markdown("""
         color: #ffffff;
     }
     .card {
-        background-color: #1f2630;
-        padding: 1rem;
+        padding: 0.75rem 1rem;
         border-radius: 12px;
-        box-shadow: 0px 0px 10px #222;
+        box-shadow: 0px 0px 10px #0003;
         margin-bottom: 1rem;
+        font-size: 0.9rem;
     }
     .card h4 {
         margin-top: 0;
+        margin-bottom: 0.5rem;
     }
+    .blue { background-color: #1f3b70; }
+    .yellow { background-color: #665c00; }
+    .green { background-color: #1f703b; }
+    .red { background-color: #701f1f; }
     </style>
 """, unsafe_allow_html=True)
 
-# Función para enviar notificación push
+# Enviar notificación
 def send_push_notification(destino):
     headers = {
         "Content-Type": "application/json; charset=utf-8",
@@ -50,7 +53,7 @@ def send_push_notification(destino):
     }
     requests.post("https://onesignal.com/api/v1/notifications", json=payload, headers=headers)
 
-# Función para suscribirse al destino actual
+# Suscripción a notificación
 def subscribe_to_destino(destino):
     st.markdown(f"""
         <script>
@@ -65,23 +68,36 @@ def subscribe_to_destino(destino):
         </script>
     """, unsafe_allow_html=True)
 
-# Función para mostrar tarjetas de datos
+# Color según estado
+def get_card_class(estado):
+    estado = str(estado).lower()
+    if "cancel" in estado:
+        return "red"
+    elif "factur" in estado:
+        return "green"
+    elif "program" in estado:
+        return "blue"
+    elif "carg" in estado:
+        return "yellow"
+    return "blue"
+
+# Mostrar tarjetas compactas
 def mostrar_tarjetas(df_filtrado):
     for _, row in df_filtrado.iterrows():
-        with st.container():
-            st.markdown(f"""
-                <div class="card">
-                    <h4>🛒 {row['Producto']}</h4>
-                    <p><strong>Turno:</strong> {row['Turno']}</p>
-                    <p><strong>Tonel:</strong> {row['Tonel']}</p>
-                    <p><strong>Capacidad:</strong> {row['Capacidad programada (Litros)']} L</p>
-                    <p><strong>Fecha estimada:</strong> {row['Fecha y hora estimada']}</p>
-                    <p><strong>Fecha facturación:</strong> {row['Fecha y hora de facturación']}</p>
-                    <p><strong>Estatus:</strong> {row['Estado de atención']}</p>
-                </div>
-            """, unsafe_allow_html=True)
+        estado_class = get_card_class(row['Estado de atención'])
+        st.markdown(f"""
+            <div class="card {estado_class}">
+                <h4>🛒 {row['Producto']}</h4>
+                <p>👷 <strong>Turno:</strong> {row['Turno']}</p>
+                <p>🛢️ <strong>Tonel:</strong> {row['Tonel']}</p>
+                <p>📏 <strong>Capacidad:</strong> {row['Capacidad programada (Litros)']} L</p>
+                <p>📅 <strong>Fecha estimada:</strong> {row['Fecha y hora estimada']}</p>
+                <p>🧾 <strong>Fecha facturación:</strong> {row['Fecha y hora de facturación']}</p>
+                <p>🚦 <strong>Estado:</strong> {row['Estado de atención']}</p>
+            </div>
+        """, unsafe_allow_html=True)
 
-# Función para login de administrador
+# Login admin
 def login_panel():
     with st.sidebar:
         st.markdown("## 🔐 Acceso administrador")
@@ -94,7 +110,7 @@ def login_panel():
             else:
                 st.error("Credenciales incorrectas")
 
-# Función sección admin
+# Panel admin
 def admin_panel():
     st.title("Panel de Administración")
     archivo = st.file_uploader("📤 Cargar archivo de pedidos (Excel)", type=["xlsx"])
@@ -124,7 +140,7 @@ def admin_panel():
     else:
         st.warning("Por favor, carga un archivo Excel.")
 
-# ✅ Función modificada: búsqueda parcial por número de destino
+# Panel usuario
 def usuario_panel():
     st.title("🔍 Consulta tu pedido por número de destino")
 
@@ -139,12 +155,10 @@ def usuario_panel():
     query = st.text_input("🔎 Escribe solo el número de tu destino (ej. 58):")
     if query:
         numero = query.strip()
-
-        # Filtra si el número está contenido como palabra completa
-        df_filtrado = historico[historico["Destino_str"].str.contains(rf'\b{numero}\b', na=False, case=False)]
+        df_filtrado = historico[historico["Destino_str"].str.fullmatch(numero)]
 
         if not df_filtrado.empty:
-            destino_actual = df_filtrado.iloc[0]["Destino_str"]  # toma el primero coincidente
+            destino_actual = numero
 
             if st.button("🔔 Suscribirme a notificaciones de este destino"):
                 subscribe_to_destino(destino_actual)
@@ -154,7 +168,7 @@ def usuario_panel():
                 "Fecha y hora estimada", "Fecha y hora de facturación", "Estado de atención"
             ]])
         else:
-            st.info("⚠️ No se encontraron pedidos para ese número de destino.")
+            st.info("⚠️ No se encontraron pedidos exactos para ese número de destino.")
 
 # Función principal
 def main():
@@ -170,6 +184,5 @@ def main():
     else:
         usuario_panel()
 
-# Ejecutar app
 if __name__ == "__main__":
     main()
