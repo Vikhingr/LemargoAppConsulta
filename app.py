@@ -247,7 +247,7 @@ def admin_panel():
                 if nuevo_hash != hash_guardado:
                     guardar_hash_actual(nuevo_hash)
 
-                    ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                    ahora = datetime.datetime.now().isoformat()
                     guardar_historial(ahora)
 
                     enviar_notificacion("Actualización", "La base de datos ha sido actualizada.")
@@ -361,10 +361,15 @@ def user_panel():
         st.info("Esperando que el admin suba un archivo.")
         return
 
-    # Mostrar última actualización
-    timestamp = os.path.getmtime(EXCEL_PATH)
-    ultima_mod = datetime.datetime.fromtimestamp(timestamp)
-    st.info(f"📅 Última actualización: {ultima_mod.strftime('%d/%m/%Y - %H:%M Hrs.')}")
+historial = cargar_historial()
+if historial:
+    try:
+        ultima_fecha = datetime.datetime.fromisoformat(historial[-1])
+        st.info(f"📅 Última actualización: {ultima_fecha.strftime('%d/%m/%Y - %H:%M Hrs.')}")
+    except Exception:
+        st.info("📅 Última actualización: (fecha inválida)")
+else:
+    st.info("📅 Última actualización: (sin datos)")
 
     try:
         df = cargar_datos()
