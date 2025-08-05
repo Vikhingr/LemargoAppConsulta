@@ -251,6 +251,7 @@ def admin_panel():
                 if nuevo_hash != hash_guardado:
                     guardar_hash_actual(nuevo_hash)
 
+                    # --- CORRECCIÓN: Guardar la fecha y hora con la zona horaria ---
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
@@ -272,7 +273,12 @@ def admin_panel():
             historial = cargar_historial()
             if historial:
                 for i, fecha in enumerate(historial[::-1], 1):
-                    st.write(f"{i}. {fecha}")
+                    # --- CORRECCIÓN: Mostrar la fecha formateada correctamente ---
+                    try:
+                        fecha_dt = datetime.datetime.fromisoformat(fecha)
+                        st.write(f"{i}. {fecha_dt.strftime('%d/%m/%Y - %H:%M:%S Hrs.')} CDMX")
+                    except ValueError:
+                        st.write(f"{i}. {fecha}")
             else:
                 st.write("No hay actualizaciones aún.")
 
@@ -289,10 +295,10 @@ def admin_panel():
 # --- Nueva función para mostrar fichas visuales ---
 def mostrar_fichas_visuales(df_resultado):
     colores = {
-        "PROGRAMADO": (0, 123, 255),   # azul RGB
-        "FACTURADO": (40, 167, 69),    # verde RGB
-        "CANCELADO": (220, 53, 69),    # rojo RGB
-        "CARGANDO": (255, 193, 7)      # amarillo RGB
+        "PROGRAMADO": (0, 123, 255),    # azul RGB
+        "FACTURADO": (40, 167, 69),      # verde RGB
+        "CANCELADO": (220, 53, 69),      # rojo RGB
+        "CARGANDO": (255, 193, 7)       # amarillo RGB
     }
     iconos = {
         "PROGRAMADO": "📅",
