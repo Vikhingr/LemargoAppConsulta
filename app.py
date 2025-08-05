@@ -361,7 +361,8 @@ def check_and_notify_on_change(old_df, new_df):
         # Estandarizar las columnas clave de ambos DataFrames de forma estricta
         def clean_dataframe(df):
             df_cleaned = df.copy()
-            for col in ['Destino', 'Producto', 'Estado de atención']:
+            # AHORA INCLUIMOS 'Folio pedido' en la limpieza
+            for col in ['Destino', 'Folio pedido', 'Producto', 'Estado de atención']:
                 if col in df_cleaned.columns:
                     df_cleaned[col] = df_cleaned[col].astype(str).str.strip().str.upper()
             
@@ -376,28 +377,34 @@ def check_and_notify_on_change(old_df, new_df):
         st.info(f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}")
         st.info(f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}")
 
-        # --- LÓGICA MANUAL Y A PRUEBA DE ERRORES ---
+        # --- LÓGICA CON CLAVE DE COMPARACIÓN MÁS ROBUSTA ---
         cambios_detectados = []
         old_data_dict = {}
 
-        # Construir el diccionario de forma manual
-        for index, row in old_df_clean.iterrows():
-            key = (row['Destino'], row['Fecha'], row['Producto'])
-            old_data_dict[key] = row['Estado de atención']
-
-        # Iterar el nuevo DataFrame y comparar con el diccionario
+        # CAMBIO CLAVE: La clave de comparación ahora incluye 'Folio pedido'
+        comparison_key_columns = ['Destino', 'Folio pedido', 'Producto', 'Fecha']
+        old_df_indexed = old_df_clean.set_index(comparison_key_columns)
+        
         for index, row in new_df_clean.iterrows():
-            key = (row['Destino'], row['Fecha'], row['Producto'])
-            
-            if key in old_data_dict:
-                if old_data_dict[key] != row['Estado de atención']:
-                    cambios_detectados.append({
-                        'Destino': row['Destino'],
-                        'Fecha': row['Fecha'],
-                        'Producto': row['Producto'],
-                        'Estado de atención_old': old_data_dict[key],
-                        'Estado de atención_new': row['Estado de atención']
-                    })
+            try:
+                key = (row['Destino'], row['Folio pedido'], row['Producto'], row['Fecha'])
+                
+                if key in old_df_indexed.index:
+                    old_status = old_df_indexed.loc[key, 'Estado de atención']
+                    new_status = row['Estado de atención']
+                    
+                    if old_status != new_status:
+                        cambios_detectados.append({
+                            'Destino': row['Destino'],
+                            'Folio pedido': row['Folio pedido'],
+                            'Fecha': row['Fecha'],
+                            'Producto': row['Producto'],
+                            'Estado de atención_old': old_status,
+                            'Estado de atención_new': new_status
+                        })
+            except KeyError:
+                # Esto manejaría el caso de que la fila exista en el nuevo pero no en el viejo
+                pass
 
         cambios_df = pd.DataFrame(cambios_detectados)
         
