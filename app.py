@@ -1,148 +1,91 @@
 import streamlit as st
 import pandas as pd
 import os
-import requests
 from datetime import datetime
+import requests
+from dotenv import load_dotenv
 
-# ======================= CONFIGURACIÓN =======================
-st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide")
+# Cargar variables desde .env o .streamlit/secrets.toml en producción
+load_dotenv()
+ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID", st.secrets.get("ONESIGNAL_APP_ID"))
+ONESIGNAL_API_KEY = os.getenv("ONESIGNAL_REST_API_KEY", st.secrets.get("ONESIGNAL_REST_API_KEY"))
 
-# ======================= ESTILOS =======================
-st.markdown("""
-    <style>
-    body {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    .css-1d391kg {padding-top: 1rem;}
-    .card {
-        background-color: #262730;
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-    }
-    .cancelado { background-color: #ff4b4b; color: white; }
-    .entregado { background-color: #4CAF50; color: white; }
-    .pendiente { background-color: #FFA500; color: black; }
-    .en_transito { background-color: #1E90FF; color: white; }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Seguimiento de Pedidos", layout="centered")
 
-# ======================= SECRETS =======================
-ONESIGNAL_APP_ID = st.secrets["ONESIGNAL_APP_ID"]
-ONESIGNAL_API_KEY = st.secrets["ONESIGNAL_REST_API_KEY"]
-ADMIN_USER = st.secrets["ADMIN_USER"]
-ADMIN_PASS = st.secrets["ADMIN_PASS"]
+# Cargar histórico de datos
+def cargar_historico():
+    try:
+        return pd.read_excel("historico_estatus.xlsx")
+    except FileNotFoundError:
+        return pd.DataFrame()
 
-# ======================= FUNCIÓN ONESIGNAL =======================
-def send_push_notification(destino):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Basic {ONESIGNAL_API_KEY}"
-    }
-    payload = {
+# Suscripción a notificaciones por destino
+def suscribirse_destino(destino):
+    js = {
         "app_id": ONESIGNAL_APP_ID,
-        "included_segments": ["All"],
-        "filters": [
-            {"field": "tag", "key": "destino", "relation": "=", "value": destino}
-        ],
-        "headings": {"en": "Actualización de Pedido"},
-        "contents": {"en": f"Hay un cambio en el estado de pedidos para {destino}."}
+        "tags": {
+            "destino": str(destino)
+        }
     }
-    response = requests.post("https://onesignal.com/api/v1/notifications", headers=headers, json=payload)
-    return response.status_code
+    st.markdown(f"""
+        <script>
+        window.OneSignal = window.OneSignal || [];
+        OneSignal.push(function() {{
+            OneSignal.showNativePrompt();
+            OneSignal.sendTags({js["tags"]});
+            alert("✅ Te has suscrito correctamente al destino {destino}. Recibirás notificaciones de cambios.");
+        }});
+        </script>
+    """, unsafe_allow_html=True)
 
-# ======================= LOGIN =======================
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+# Tarjeta visual
+def mostrar_tarjeta(row):
+    color = "#007bff"  # Azul por defecto
+    estatus = row["Estado de atención"]
+    if "cancel" in estatus.lower():
+        color = "#dc3545"
+    elif "entregado" in estatus.lower():
+        color = "#28a745"
+    elif "pendiente" in estatus.lower():
+        color = "#ffc107"
 
-with st.sidebar:
-    st.title("Administrador")
-    if not st.session_state.logged_in:
-        user = st.text_input("Usuario")
-        pwd = st.text_input("Contraseña", type="password")
-        if st.button("Ingresar"):
-            if user == ADMIN_USER and pwd == ADMIN_PASS:
-                st.success("Acceso concedido")
-                st.session_state.logged_in = True
+    st.markdown(f"""
+    <div style="border-radius: 10px; padding: 15px; margin-bottom: 10px; background-color: {color}; color: white;">
+        <b>Producto:</b> {row['Producto']}<br>
+        <b>Turno:</b> {row['Turno']}<br>
+        <b>Tonel:</b> {row['Medio']}<br>
+        <b>Capacidad:</b> {row['Capacidad programada (Litros)']} L<br>
+        <b>Fecha estimada:</b> {row['Fecha y hora estimada']}<br>
+        <b>Fecha de facturación:</b> {row['Fecha y hora de facturación']}<br>
+        <b>Estatus:</b> {row['Estado de atención']}
+    </div>
+    """, unsafe_allow_html=True)
+
+# Interfaz principal
+def main():
+    st.title("📦 Seguimiento de Pedidos por Destino")
+
+    historico = cargar_historico()
+
+    destino_input = st.text_input("🔍 Ingresa el número exacto de tu destino (ej. 58):")
+    if destino_input:
+        if destino_input.isdigit():
+            df_filtrado = historico[historico["Destino"].astype(str) == destino_input]
+            if not df_filtrado.empty:
+                st.markdown(f"### Resultados para destino **{destino_input}**")
+                
+                # Botón de suscripción
+                with st.expander("🔔 Suscribirse a este destino"):
+                    st.markdown("Al suscribirte, recibirás notificaciones automáticas cuando cambie el estatus de tus pedidos.")
+                    if st.button("✅ Suscribirse a este destino"):
+                        suscribirse_destino(destino_input)
+
+                for _, row in df_filtrado.iterrows():
+                    mostrar_tarjeta(row)
             else:
-                st.error("Credenciales inválidas")
-    else:
-        st.success("Sesión iniciada")
-
-# ======================= CARGA DE ARCHIVO =======================
-if st.session_state.logged_in:
-    st.subheader("📤 Cargar archivo de pedidos")
-    file = st.file_uploader("Selecciona el archivo Excel", type=["xlsx"])
-    if file:
-        df = pd.read_excel(file)
-        st.write("Vista previa de los datos:")
-        st.dataframe(df.head())
-
-        # Validar columnas necesarias
-        columnas_requeridas = ['Destino', 'Fecha', 'Estado de atención', 'Folio Pedido']
-        if not all(col in df.columns for col in columnas_requeridas):
-            st.error("❌ El archivo no contiene las columnas necesarias.")
+                st.warning("No se encontraron pedidos para ese destino.")
         else:
-            # Métricas
-            st.subheader("📊 Métricas")
-            total = len(df)
-            entregados = len(df[df['Estado de atención'].str.contains("entregado", case=False, na=False)])
-            cancelados = len(df[df['Estado de atención'].str.contains("cancelado", case=False, na=False)])
-            pendientes = total - entregados - cancelados
+            st.warning("Por favor ingresa solo el número del destino.")
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total pedidos", total)
-            col2.metric("Entregados", entregados)
-            col3.metric("Cancelados", cancelados)
-
-            # Gráfica
-            st.bar_chart(df['Estado de atención'].value_counts())
-
-# ======================= CONSULTA PÚBLICA =======================
-st.header("🔍 Consultar pedidos por destino")
-
-destino_input = st.text_input("Escribe el destino (no es necesario escribirlo completo)").strip()
-
-if destino_input:
-    if 'df' not in locals():
-        st.warning("⚠️ No hay datos cargados todavía.")
-    else:
-        resultados = df[df['Destino'].str.contains(destino_input, case=False, na=False)]
-        if resultados.empty:
-            st.warning("No se encontraron pedidos para ese destino.")
-        else:
-            for _, row in resultados.iterrows():
-                estado = row['Estado de atención'].lower()
-                clase = "card"
-                if "cancelado" in estado:
-                    clase += " cancelado"
-                elif "entregado" in estado:
-                    clase += " entregado"
-                elif "pendiente" in estado:
-                    clase += " pendiente"
-                else:
-                    clase += " en_transito"
-                st.markdown(f"""
-                    <div class="{clase}">
-                        <strong>Destino:</strong> {row['Destino']}<br>
-                        <strong>Folio:</strong> {row['Folio Pedido']}<br>
-                        <strong>Estado:</strong> {row['Estado de atención']}<br>
-                        <strong>Fecha:</strong> {row['Fecha']}<br>
-                    </div>
-                """, unsafe_allow_html=True)
-
-            # ======== BOTÓN DE SUSCRIPCIÓN ONESIGNAL =========
-            st.markdown("""
-                <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-                <script>
-                  window.OneSignal = window.OneSignal || [];
-                  OneSignal.push(function() {
-                    OneSignal.init({
-                      appId: "%s",
-                    });
-                    OneSignal.showSlidedownPrompt();
-                    OneSignal.sendTag("destino", "%s");
-                  });
-                </script>
-            """ % (ONESIGNAL_APP_ID, destino_input), unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()
