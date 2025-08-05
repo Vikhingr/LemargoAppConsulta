@@ -26,13 +26,13 @@ HISTORIAL_PATH = "historial_actualizaciones.json"
 # --- PWA Setup (manifest e iconos) ---
 def pwa_setup():
     st.markdown("""
-        <link rel="manifest" href="manifest.json">
+        <link rel="manifest" href="public/manifest.json">
         <meta name="theme-color" content="#0f1116">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black">
-        <link rel="apple-touch-icon" href="Lemargo-192x192.png">
-        <link rel="icon" type="image/png" sizes="192x192" href="Lemargo-192x192.png">
+        <link rel="apple-touch-icon" href="public/icons/icon-192.png">
+        <link rel="icon" type="image/png" sizes="192x192" href="public/icons/icon-192.png">
     """, unsafe_allow_html=True)
 
 # --- OneSignal Web Push Setup con prompt automático ---
@@ -61,8 +61,8 @@ def onesignal_web_push_setup():
                         enable: true,
                     }},
                     allowLocalhostAsSecureOrigin: true,
-                    serviceWorkerPath: "/OneSignalSDKWorker.js",
-                    serviceWorkerUpdaterPath: "/OneSignalSDKUpdaterWorker.js"
+                    serviceWorkerPath: "public/OneSignalSDKWorker.js",
+                    serviceWorkerUpdaterPath: "public/OneSignalSDKUpdaterWorker.js"
                 }});
                 OneSignal.showSlidedownPrompt();
             }});
@@ -651,8 +651,11 @@ def mostrar_fichas_visuales(df_resultado):
 
         ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
+
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
+
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
+
         """
 
         fecha_estimada = fila.get('Fecha y hora estimada', None)
@@ -664,7 +667,7 @@ def mostrar_fichas_visuales(df_resultado):
             ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
 
         ficha_html += f"""
-                <b>Estado:</b> {estado}
+                <b>Estado:</b> {estado}<br>
             </div>
         </div>
         """
@@ -745,39 +748,54 @@ def user_panel():
                 }});
                 </script>
                 """, unsafe_allow_html=True)
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
 
-            resultado = resultado[columnas_validas].sort_values(by='Fecha', ascending=False)
-
-            for fecha, grupo in resultado.groupby('Fecha'):
-                fecha_formateada = pd.to_datetime(fecha).strftime('%d/%m/%Y')
-                st.subheader(f"📅 Detalles del día: {fecha_formateada}")
-                mostrar_fichas_visuales(grupo)
+        if not resultado.empty:
+            mostrar_fichas_visuales(resultado)
         else:
-            st.warning("No se encontraron resultados.")
+            st.warning("No se encontró ningún destino con ese número.")
+            if 'last_df' in st.session_state and not st.session_state.last_df.empty:
+                st.markdown("---")
+                st.subheader("Búsqueda en base histórica")
+                df_historico = st.session_state.last_df
+                df_historico['Destino_num'] = df_historico['Destino'].astype(str).str.split('-').str[0].str.strip()
+                resultado_historico = df_historico[df_historico['Destino_num'] == pedido.strip()]
+                if not resultado_historico.empty:
+                    st.markdown("Hemos encontrado este destino en nuestra base de datos, pero no está activo en el archivo más reciente:")
+                    mostrar_fichas_visuales(resultado_historico)
+                else:
+                    st.info("No se encontró este destino en la base de datos histórica.")
 
-# --- App principal ---
+
+# --- Lógica principal de la app ---
 def main():
     pwa_setup()
     onesignal_web_push_setup()
-    pwa_install_prompt()
 
-    if 'logged_in' not in st.session_state:
+    if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
 
-    menu = st.sidebar.radio("📋 Menú principal", ["Consultar estatus", "Admin Login"])
-
-    if menu == "Consultar estatus":
-        user_panel()
-    elif menu == "Admin Login":
-        if not st.session_state.logged_in:
-            login()
-        else:
-            st.success("🛠️ Sesión iniciada como administrador")
+    if st.session_state.logged_in:
+        st.sidebar.title("Menú")
+        opcion = st.sidebar.radio("Elige una opción:", ["Panel de administración", "Dashboard de datos", "Cerrar sesión"])
+        if opcion == "Panel de administración":
             admin_panel()
+        elif opcion == "Dashboard de datos":
+            admin_dashboard()
+        elif opcion == "Cerrar sesión":
+            st.session_state.logged_in = False
+            st.session_state.last_df = pd.DataFrame()
+            st.session_state.messages = []
+            try:
+                st.experimental_rerun()
+            except AttributeError:
+                st.rerun()
+    else:
+        st.sidebar.title("Menú")
+        opcion = st.sidebar.radio("Elige una opción:", ["Consulta", "Administrador"])
+        if opcion == "Consulta":
+            user_panel()
+        elif opcion == "Administrador":
+            login()
 
 if __name__ == "__main__":
     main()
