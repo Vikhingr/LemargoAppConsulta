@@ -652,9 +652,8 @@ def mostrar_fichas_visuales(df_resultado):
         ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
 
-                <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
-
-                <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
+                st.write("<b>Turno:</b> 1<br>", unsafe_allow_html=True)
+                st.write("<b>Capacidad (L):</b> 20400<br>", unsafe_allow_html=True)
 
         """
 
