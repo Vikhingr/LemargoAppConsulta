@@ -344,16 +344,17 @@ def mostrar_fichas_visuales(df_resultado):
             <div style="font-size: 14px; margin-top: 4px;">
         """
         
-        # Muestra la fecha principal solo si no es nula
+ # Muestra la columna 'Fecha' si está disponible y formatea sin la hora
+        fecha_general = fila.get('Fecha', None)
         if pd.notnull(fecha_general):
-            # Formateamos la fecha si es un objeto datetime, si no la dejamos como está
-            if isinstance(fecha_general, datetime.datetime):
-                fecha_str = fecha_general.strftime('%Y-%m-%d')
-            else:
-                fecha_str = str(fecha_general)
-            
-            ficha_html += f"<b>Fecha:</b> {fecha_str}<br>"
-        
+            # Asumimos que la columna 'Fecha' es un objeto datetime y lo formateamos
+            # Si no es un objeto datetime, se muestra como texto
+            try:
+                fecha_str = fecha_general.strftime('%d/%m/%Y')
+                ficha_html += f"<b>Fecha:</b> {fecha_str}<br>"
+            except AttributeError:
+                # Si no es un datetime, lo tratamos como string
+                ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
         ficha_html += f"""
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
