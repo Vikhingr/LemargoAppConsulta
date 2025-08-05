@@ -514,6 +514,32 @@ def admin_panel():
         except AttributeError:
             st.rerun()
 
+    # --- INICIO DEL CÓDIGO TEMPORAL PARA REINICIAR LA BASE DE DATOS ---
+    st.markdown("---")
+    st.header("⚠️ Opciones de mantenimiento")
+    if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
+        
+        archivos_a_borrar = [HISTORIAL_EXCEL_PATH, HISTORIAL_PATH, HASH_PATH]
+        
+        borrados = 0
+        for archivo in archivos_a_borrar:
+            if os.path.exists(archivo):
+                os.remove(archivo)
+                borrados += 1
+                st.success(f"🗑️ Archivo '{archivo}' eliminado.")
+            else:
+                st.info(f"Archivo '{archivo}' no encontrado.")
+        
+        st.warning(f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo.")
+        st.info("Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio.")
+        st.cache_data.clear()
+        
+        try:
+            st.experimental_rerun()
+        except AttributeError:
+            st.rerun()
+    # --- FIN DEL CÓDIGO TEMPORAL ---
+
 
 # --- Función para mostrar fichas visuales (SIN el botón) ---
 def mostrar_fichas_visuales(df_resultado):
