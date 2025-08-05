@@ -20,27 +20,35 @@ st.set_page_config(page_title="Seguimiento de Pedidos", layout="wide", page_icon
 st.markdown("<style>body { background-color: #0e1117; color: white; }</style>", unsafe_allow_html=True)
 
 # ---------------------------------------------
-# Funciones corregidas
+# Funciones mejoradas
 # ---------------------------------------------
 
 def cargar_datos():
+    """Carga los datos del archivo Excel con manejo robusto de errores"""
     try:
         df = pd.read_excel("historico_estatus.xlsx")
         
-        # Conversión segura de tipos de datos
+        # Conversión segura de tipos de datos y limpieza
         df["Destino"] = df["Destino"].astype(str).str.strip()
         df["Fecha y hora estimada"] = pd.to_datetime(df["Fecha y hora estimada"], errors='coerce')
         df["Fecha y hora de facturación"] = pd.to_datetime(df["Fecha y hora de facturación"], errors='coerce')
         
+        # Verificar columnas esenciales
+        columnas_requeridas = ["Destino", "Producto", "Estado de atención", "Capacidad programada (Litros)"]
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                raise ValueError(f"Columna requerida faltante: {col}")
+        
         return df
     except FileNotFoundError:
-        st.error("Error: El archivo 'historico_estatus.xlsx' no existe. Carga un archivo en la sección Admin.")
+        st.error("Error: No se encontró el archivo 'historico_estatus.xlsx'. Por favor, carga un archivo en la sección Admin.")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Error al cargar datos: {str(e)}")
+        st.error(f"Error crítico al cargar datos: {str(e)}")
         return pd.DataFrame()
 
 def mostrar_tarjetas(resultados):
+    """Muestra los resultados en tarjetas visuales con colores por estado"""
     estado_colores = {
         "Entregado": "#1f8a70",
         "En proceso": "#f39c12",
@@ -66,18 +74,49 @@ def mostrar_tarjetas(resultados):
                 </div>
             """, unsafe_allow_html=True)
 
+def suscribir_usuario(destino):
+    """Gestiona la suscripción a notificaciones push"""
+    player_id = st.session_state.get("player_id")
+    if not player_id:
+        st.warning("No se detectó tu suscripción push. Asegúrate de aceptar las notificaciones.")
+        return
+
+    tag_url = f"https://onesignal.com/api/v1/players/{player_id}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {ONESIGNAL_REST_API_KEY}"
+    }
+    data = {
+        "tags": {
+            f"destino_{destino}": "1"
+        },
+        "app_id": ONESIGNAL_APP_ID
+    }
+    
+    try:
+        response = requests.put(tag_url, headers=headers, json=data)
+        if response.status_code == 200:
+            st.success(f"✅ Te has suscrito correctamente al destino {destino}. Recibirás notificaciones si hay cambios.")
+        else:
+            st.error(f"❌ Error al suscribirse. Código de error: {response.status_code}")
+    except Exception as e:
+        st.error(f"❌ Error de conexión: {str(e)}")
+
 def seccion_usuario():
+    """Interfaz para usuarios regulares"""
     st.title("📦 Seguimiento de Pedido por Destino")
     st.markdown("Ingresa el número de destino exacto para ver el estado actual de tu pedido.")
 
-    destino_input = st.text_input("Número de destino").strip()
+    destino_input = st.text_input("Número de destino", key="busqueda_destino").strip()
 
     if destino_input:
         df = cargar_datos()
         if not df.empty:
+            # Búsqueda más flexible (contiene el texto ingresado)
             resultados = df[df["Destino"].str.contains(destino_input, case=False, na=False)]
             
             if not resultados.empty:
+                st.success(f"🔍 Se encontraron {len(resultados)} pedidos para el destino {destino_input}")
                 mostrar_tarjetas(resultados)
                 
                 if st.button("🔔 Suscribirme a notificaciones de este destino"):
@@ -88,59 +127,94 @@ def seccion_usuario():
             st.warning("No hay datos disponibles. Contacta al administrador.")
 
 def seccion_admin():
-    st.title("🔒 Administración")
-    st.markdown("Solo personal autorizado")
+    """Panel de administración mejorado"""
+    st.title("🔒 Panel de Administración")
     
-    # Botón de cierre de sesión
-    if st.button("Cerrar sesión"):
-        st.session_state["admin_logged"] = False
-        st.experimental_rerun()
-
-    uploaded_file = st.file_uploader("Cargar nuevo archivo Excel", type=["xlsx"])
+    # Barra de herramientas superior
+    with st.container():
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if st.button("🚪 Cerrar sesión", type="primary"):
+                st.session_state["admin_logged"] = False
+                st.rerun()
+    
+    st.subheader("Cargar nuevos datos")
+    uploaded_file = st.file_uploader("Selecciona un archivo Excel", type=["xlsx"], key="file_uploader")
+    
     if uploaded_file:
         try:
             nuevo_df = pd.read_excel(uploaded_file)
             
-            # Validación básica de columnas
-            columnas_requeridas = ["Destino", "Producto", "Estado de atención"]
-            if not all(col in nuevo_df.columns for col in columnas_requeridas):
-                st.error(f"El archivo debe contener estas columnas: {', '.join(columnas_requeridas)}")
+            # Validación de columnas
+            columnas_requeridas = ["Destino", "Producto", "Estado de atención", "Fecha"]
+            faltantes = [col for col in columnas_requeridas if col not in nuevo_df.columns]
+            
+            if faltantes:
+                st.error(f"El archivo no contiene las columnas requeridas: {', '.join(faltantes)}")
                 return
-                
+            
             # Procesamiento de datos
             nuevo_df["ID"] = nuevo_df["Destino"].astype(str) + "_" + pd.to_datetime(nuevo_df["Fecha"]).dt.strftime("%Y%m%d")
             nuevo_df["Destino"] = nuevo_df["Destino"].astype(str).str.strip()
             
             # Guardar archivo
             nuevo_df.to_excel("historico_estatus.xlsx", index=False)
-            st.success("Datos actualizados correctamente!")
+            
+            st.success("✅ Datos actualizados correctamente!")
             st.balloons()
             
+            # Mostrar vista previa
+            with st.expander("🔍 Vista previa de los datos cargados"):
+                st.dataframe(nuevo_df.head(10))
+                
         except Exception as e:
-            st.error(f"Error grave al procesar el archivo: {str(e)}")
+            st.error(f"❌ Error al procesar el archivo: {str(e)}")
+    
+    # Estadísticas rápidas
+    if os.path.exists("historico_estatus.xlsx"):
+        st.subheader("📊 Estadísticas actuales")
+        df = cargar_datos()
+        if not df.empty:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total pedidos", len(df))
+            with col2:
+                st.metric("Pedidos entregados", len(df[df["Estado de atención"] == "Entregado"]))
+            with col3:
+                st.metric("Pedidos pendientes", len(df[df["Estado de atención"] == "Pendiente"]))
 
 def login_panel():
-    st.sidebar.markdown("## Ingreso Administrador")
-    username = st.sidebar.text_input("Usuario")
-    password = st.sidebar.text_input("Contraseña", type="password")
+    """Formulario de login mejorado"""
+    st.title("🔐 Autenticación requerida")
     
-    if st.sidebar.button("Ingresar"):
-        if username == ADMIN_USER and password == ADMIN_PASS:
-            st.session_state["admin_logged"] = True
-            st.experimental_rerun()
-        else:
-            st.sidebar.error("Credenciales incorrectas")
+    with st.form("login_form"):
+        username = st.text_input("Usuario", key="username_input")
+        password = st.text_input("Contraseña", type="password", key="password_input")
+        
+        if st.form_submit_button("Ingresar", type="primary"):
+            if username == ADMIN_USER and password == ADMIN_PASS:
+                st.session_state["admin_logged"] = True
+                st.rerun()
+            else:
+                st.error("Credenciales incorrectas. Intenta nuevamente.")
 
 def main():
+    """Función principal con gestión mejorada de estado"""
     st_autorefresh(interval=0)
+    
+    # Inicialización de estado
+    if "admin_logged" not in st.session_state:
+        st.session_state["admin_logged"] = False
+    
     st.markdown("<h2 style='color:#00adb5;'>Sistema de Seguimiento Lemargo</h2>", unsafe_allow_html=True)
-
+    
+    # Menú de navegación
     menu = st.sidebar.radio("Navegación", ["Usuario", "Administrador"], index=0)
     
     if menu == "Usuario":
         seccion_usuario()
     else:
-        if st.session_state.get("admin_logged"):
+        if st.session_state["admin_logged"]:
             seccion_admin()
         else:
             login_panel()
