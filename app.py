@@ -265,7 +265,6 @@ def check_and_notify_on_change(old_df, new_df):
         st.info("✅ No se detectaron cambios en el estado de los destinos. No se enviaron notificaciones.")
 
 
-# --- Dentro de la función admin_panel() ---
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
@@ -274,34 +273,36 @@ def admin_panel():
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         
-        # --- NUEVO CÓDIGO PARA MOSTRAR TAMAÑO ---
+        # Este es el nuevo bloque para mostrar el tamaño, asegúrate de que no haya sangría
         if os.path.exists(HISTORIAL_EXCEL_PATH):
             file_size_bytes = os.path.getsize(HISTORIAL_EXCEL_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
             st.markdown(f"💾 **Tamaño actual de la base de datos:** {file_size_mb:.2f} MB")
-        # --- FIN DEL NUEVO CÓDIGO ---
 
-        if uploaded_file is not None:
+        # La línea 'try' debe estar sangrada
         if uploaded_file is not None:
             try:
+                # Carga el archivo subido
                 df_nuevo = pd.read_excel(uploaded_file)
                 st.write("Vista previa del archivo cargado:")
                 st.dataframe(df_nuevo.head())
 
+                # Botón para cargar la base
                 if st.button("Cargar y actualizar base histórica"):
+                    # 1. Carga la base histórica existente (si existe)
                     if os.path.exists(HISTORIAL_EXCEL_PATH):
                         df_historico_old = pd.read_excel(HISTORIAL_EXCEL_PATH)
                     else:
                         df_historico_old = pd.DataFrame()
 
-                    # Antes de combinar, revisamos si hay cambios para notificar
+                    # 2. Antes de combinar, revisamos si hay cambios para notificar
                     if not df_historico_old.empty:
                         # Aseguramos que la columna 'Fecha' sea datetime para la comparación
                         df_nuevo['Fecha'] = pd.to_datetime(df_nuevo['Fecha']).dt.date
                         df_historico_old['Fecha'] = pd.to_datetime(df_historico_old['Fecha']).dt.date
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # Combina los datos, manteniendo la última actualización para cada Destino + Fecha
+                    # 3. Combina los datos, manteniendo la última actualización para cada Destino + Fecha
                     combined_df = pd.concat([df_historico_old, df_nuevo], ignore_index=True)
                     
                     # Se ordena por fecha y luego se eliminan duplicados para mantener la última versión
@@ -311,12 +312,16 @@ def admin_panel():
                     
                     combined_df.to_excel(HISTORIAL_EXCEL_PATH, index=False)
                     
+                    # 4. Actualiza el historial de carga
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
                     
                     st.success("✅ Base de datos histórica actualizada.")
+                    
+                    # Limpia la caché para que la consulta de usuario use los datos nuevos
                     st.cache_data.clear()
 
+                    # Uso seguro de rerun
                     try:
                         st.experimental_rerun()
                     except AttributeError:
