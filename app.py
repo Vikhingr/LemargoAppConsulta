@@ -101,30 +101,35 @@ def fcm_pwa_setup(fcm_token_input_id):
             }}
 
             // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
-            function getAndSendFcmToken() {{
-                messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
-                    if (currentToken) {{
-                        console.log('FCM Registration Token:', currentToken);
-                        // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
-                        // Streamlit genera IDs dinámicos, así que apuntar por aria-label es más fiable.
-                        const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
-                        if (hiddenInput) {{
-                            hiddenInput.value = currentToken;
-                            // Simula un evento de cambio para que Streamlit detecte la actualización.
-                            hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                            console.log('Token enviado a Streamlit.');
+            async function getAndSendFcmToken() {{
+                console.log('Intentando obtener el token FCM...');
+                // Solicita permiso de notificación explícitamente
+                const permission = await Notification.requestPermission();
+                console.log('Permiso de notificación:', permission);
+
+                if (permission === 'granted') {{
+                    messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
+                        if (currentToken) {{
+                            console.log('FCM Registration Token:', currentToken);
+                            // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
+                            const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
+                            if (hiddenInput) {{
+                                hiddenInput.value = currentToken;
+                                // Simula un evento de cambio para que Streamlit detecte la actualización.
+                                hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                console.log('Token enviado a Streamlit.');
+                            }} else {{
+                                console.warn('Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
+                            }}
                         }} else {{
-                            console.warn('Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
+                            console.log('No se pudo obtener el token. No hay token actual.');
                         }}
-                    }} else {{
-                        console.log('No se pudo obtener el token. Solicita permiso para generar uno.');
-                        // Aquí podrías añadir una lógica para mostrar un mensaje al usuario
-                        // si el permiso no fue concedido (e.g., alert('Por favor, activa las notificaciones.'));
-                    }}
-                }}).catch((err) => {{
-                    console.log('Ocurrió un error al obtener el token: ', err);
-                    // Aquí podrías añadir una lógica para manejar errores en la obtención del token
-                }});
+                    }}).catch((err) => {{
+                        console.error('Ocurrió un error al obtener el token: ', err);
+                    }});
+                }} else {{
+                    console.warn('Permiso de notificación denegado o no concedido.');
+                }}
             }}
             
             // Exponer la función globalmente para que Streamlit pueda llamarla
@@ -434,7 +439,7 @@ def check_and_notify_on_change(old_df, new_df):
                     new_status = row['Estado de atención']
                     
                     if old_status != new_status:
-                        cambios_detectados.append({ # <--- CORRECCIÓN AQUÍ: de 'cambios_detected' a 'cambios_detectados'
+                        cambios_detectados.append({ 
                             'Destino': row['Destino'],
                             'Folio pedido': row['Folio pedido'],
                             'Fecha': row['Fecha'],
@@ -836,11 +841,14 @@ def user_panel():
                 # Inyecta JavaScript para llamar a la función global que obtiene el token
                 st.markdown(f"""
                     <script>
-                        if (window.triggerFcmTokenAcquisition) {{
-                            window.triggerFcmTokenAcquisition();
-                        }} else {{
-                            console.error('triggerFcmTokenAcquisition no está definida.');
-                        }}
+                        // Añade un pequeño retraso para asegurar que el DOM esté listo
+                        setTimeout(() => {{
+                            if (window.triggerFcmTokenAcquisition) {{
+                                window.triggerFcmTokenAcquisition();
+                            }} else {{
+                                console.error('triggerFcmTokenAcquisition no está definida.');
+                            }}
+                        }}, 500); // 500ms de retraso
                     </script>
                 """, unsafe_allow_html=True)
                 st.info("Solicitando permiso de notificación. Por favor, acepta la solicitud del navegador.")
