@@ -39,9 +39,14 @@ ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
 # --- Rutas de Archivos de Datos ---
-# Define las rutas para la base de datos principal y el historial de actualizaciones.
+# Define las rutas para la base de datos principal (JSON) y el historial de actualizaciones.
 DB_PATH = "golden_record.json"
 HISTORIAL_PATH = "historial_actualizaciones.json"
+
+# --- Constantes de Configuración ---
+# Número de días para mantener los registros con estado 'FACTURADO' o 'CANCELADO'
+# antes de que sean eliminados de la base de datos.
+RETENTION_DAYS = 7 # ¡Cambiado de 90 a 7 días!
 
 # --- Configuración de PWA (Progressive Web App) ---
 # Inserta etiquetas HTML para configurar la aplicación como una PWA, incluyendo el manifiesto y los iconos.
@@ -77,6 +82,20 @@ def fcm_pwa_setup():
         }})
         .then((module) => {{
             const messaging = module.default();
+
+            // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
+            // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
+            if ('serviceWorker' in navigator) {{
+                navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
+                .then((registration) => {{
+                    console.log('Service Worker registrado con éxito:', registration);
+                    // Establece la instancia de mensajería para el Service Worker
+                    messaging.useServiceWorker(registration);
+                }})
+                .catch((err) => {{
+                    console.error('Error al registrar el Service Worker:', err);
+                }});
+            }}
 
             // Función para obtener el token de registro de FCM.
             function getFcmToken() {{
@@ -170,7 +189,8 @@ def cargar_datos():
 def guardar_datos(df):
     try:
         if 'Fecha' in df.columns:
-            df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime('%Y-%m-%d')
+            # Asegura que la columna 'Fecha' esté en formato de fecha para la comparación de antigüedad
+            df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
         df.to_json(DB_PATH, orient='records', date_format='iso')
     except Exception as e:
         st.error(f"Error al guardar la base de datos: {e}")
@@ -373,6 +393,7 @@ def check_and_notify_on_change(old_df, new_df):
         st.session_state.messages.append({'type': 'info', 'text': f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}"})
 
         cambios_detectados = []
+        # Define las columnas que forman la clave única para identificar un registro.
         comparison_key_columns = ['Destino', 'Folio pedido', 'Producto', 'Fecha']
         old_df_indexed = old_df_clean.set_index(comparison_key_columns)
         
@@ -441,6 +462,7 @@ def admin_panel():
 
     col1, col2 = st.columns([3, 1])
 
+    # Carga el último DataFrame conocido para la comparación y como base para la fusión.
     if 'last_df' not in st.session_state:
         st.session_state.last_df = pd.DataFrame()
         if os.path.exists(DB_PATH):
@@ -454,6 +476,7 @@ def admin_panel():
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
         
+        # Muestra el tamaño actual de la base de datos JSON.
         if os.path.exists(DB_PATH):
             file_size_bytes = os.path.getsize(DB_PATH)
             file_size_mb = file_size_bytes / (1024 * 1024)
@@ -461,7 +484,8 @@ def admin_panel():
             
         if uploaded_file is not None:
             try:
-                df_nuevo = pd.read_excel(
+                # Lee el nuevo archivo Excel cargado.
+                df_nuevo_excel = pd.read_excel(
                     uploaded_file,
                     engine='openpyxl',
                     sheet_name=0,
@@ -475,26 +499,70 @@ def admin_panel():
                 )
 
                 st.write("Vista previa del archivo cargado:")
-                st.dataframe(df_nuevo.head())
+                st.dataframe(df_nuevo_excel.head())
 
                 if st.button("Cargar y actualizar base histórica"):
                     st.session_state.messages = [] # Limpiar mensajes anteriores para la nueva acción
                     
-                    df_historico_old = st.session_state.last_df.copy()
+                    # Carga la base de datos actual para la comparación de cambios.
+                    df_golden_record_old = cargar_datos() 
 
-                    if not df_historico_old.empty:
-                        check_and_notify_on_change(df_historico_old, df_nuevo)
+                    # --- Lógica de Fusión y Retención de Datos ---
+                    # Define las columnas clave para identificar registros únicos.
+                    id_cols = ['Destino', 'Folio pedido', 'Producto', 'Fecha']
+
+                    # Limpia el DataFrame del Excel para asegurar consistencia en las claves.
+                    df_nuevo_excel_clean = df_nuevo_excel.copy()
+                    for col in ['Destino', 'Folio pedido', 'Producto', 'Estado de atención']:
+                        if col in df_nuevo_excel_clean.columns:
+                            df_nuevo_excel_clean[col] = df_nuevo_excel_clean[col].astype(str).str.strip().str.upper()
+                    if 'Fecha' in df_nuevo_excel_clean.columns:
+                        df_nuevo_excel_clean['Fecha'] = pd.to_datetime(df_nuevo_excel_clean['Fecha'], errors='coerce')
+
+                    # Si hay una base de datos existente, fusionarla.
+                    if not df_golden_record_old.empty:
+                        # Asegura que las fechas en df_golden_record_old sean datetime para la comparación.
+                        if 'Fecha' in df_golden_record_old.columns:
+                            df_golden_record_old['Fecha'] = pd.to_datetime(df_golden_record_old['Fecha'], errors='coerce')
+
+                        # Elimina duplicados de la base de datos antigua que también están en el nuevo Excel,
+                        # dando prioridad a los datos del nuevo Excel.
+                        df_merged = pd.concat([df_golden_record_old, df_nuevo_excel_clean]).drop_duplicates(subset=id_cols, keep='last')
+                    else:
+                        df_merged = df_nuevo_excel_clean
+
+                    # --- Lógica de Eliminación por Retención ---
+                    # Identifica registros 'FACTURADO' o 'CANCELADO' que han excedido el período de retención.
+                    today = pd.to_datetime(datetime.datetime.now(tz=cdmx_tz).date())
                     
-                    guardar_datos(df_nuevo)
-                    st.session_state.last_df = df_nuevo.copy()
+                    # Registros que NO están FACTURADOS/CANCELADOS O que están dentro del período de retención.
+                    df_final_golden_record = df_merged[
+                        (~df_merged['Estado de atención'].str.contains('FACTURADO|CANCELADO', case=False, na=False)) |
+                        ((today - df_merged['Fecha']).dt.days <= RETENTION_DAYS)
+                    ].copy() # Usar .copy() para evitar SettingWithCopyWarning
+                    
+                    # Asegura que las fechas se conviertan a string ISO antes de guardar en JSON
+                    if 'Fecha' in df_final_golden_record.columns:
+                        df_final_golden_record['Fecha'] = df_final_golden_record['Fecha'].dt.strftime('%Y-%m-%d')
 
+
+                    # --- Detección de Cambios y Notificación ---
+                    # Compara el estado anterior con el estado final después de la fusión y limpieza.
+                    if not df_golden_record_old.empty:
+                        check_and_notify_on_change(df_golden_record_old, df_final_golden_record)
+                    
+                    # Guarda la base de datos final procesada.
+                    guardar_datos(df_final_golden_record)
+                    st.session_state.last_df = df_final_golden_record.copy()
+
+                    # Registra la actualización en el historial.
                     ahora = datetime.datetime.now(tz=cdmx_tz).isoformat()
                     guardar_historial(ahora)
 
                     st.session_state.messages.append({'type': 'success', 'text': "✅ Base de datos histórica actualizada. El archivo subido es la nueva base."})
 
-                    st.cache_data.clear()
-                    st.rerun()
+                    st.cache_data.clear() # Limpia la caché de Streamlit para recargar datos.
+                    st.rerun() # Fuerza un re-ejecución de la aplicación.
 
             except Exception as e:
                 st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
@@ -545,7 +613,7 @@ def admin_panel():
     st.header("⚠️ Opciones de mantenimiento")
     if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
         
-        archivos_a_borrar = [DB_PATH, HISTORIAL_PATH]
+        archivos_a_borrar = [DB_PATH, HISTORIAL_PATH] 
         
         borrados = 0
         for archivo in archivos_a_borrar:
@@ -603,6 +671,7 @@ def mostrar_fichas_visuales(df_resultado):
 
         if pd.notnull(fecha_general):
             try:
+                # Asegura que la fecha se muestre en el formato deseado
                 fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
             except (ValueError, TypeError):
                 fecha_general = str(fecha_general)
@@ -652,7 +721,7 @@ def mostrar_fichas_visuales(df_resultado):
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
-    if not os.path.exists(DB_PATH):
+    if not os.path.exists(DB_PATH): 
         st.info("Esperando que el admin suba un archivo.")
         return
 
@@ -688,7 +757,7 @@ def user_panel():
         columnas_validas = [col for col in columnas if col in df.columns]
 
         df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
-        df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
+        df['Destino'] = df['Destino'].astype(str).str.strip().str.upper() 
 
         resultado = df[df['Destino_num'] == pedido.strip()]
         
