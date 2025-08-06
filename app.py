@@ -105,25 +105,25 @@ def fcm_pwa_setup(fcm_token_input_id):
                 messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
                     if (currentToken) {{
                         console.log('FCM Registration Token:', currentToken);
-                        // Encuentra el elemento de entrada oculto de Streamlit por su ID y actualiza su valor.
-                        const hiddenInput = document.getElementById('{fcm_token_input_id}');
+                        // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
+                        // Streamlit genera IDs dinámicos, así que apuntar por aria-label es más fiable.
+                        const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
                         if (hiddenInput) {{
                             hiddenInput.value = currentToken;
                             // Simula un evento de cambio para que Streamlit detecte la actualización.
                             hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
                             console.log('Token enviado a Streamlit.');
                         }} else {{
-                            console.warn('Elemento de entrada oculto de Streamlit no encontrado.');
+                            console.warn('Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
                         }}
                     }} else {{
                         console.log('No se pudo obtener el token. Solicita permiso para generar uno.');
-                        // Opcional: Mostrar una alerta si el usuario no dio permiso
-                        // alert('Para recibir notificaciones, por favor, activa las notificaciones en tu navegador.');
+                        // Aquí podrías añadir una lógica para mostrar un mensaje al usuario
+                        // si el permiso no fue concedido (e.g., alert('Por favor, activa las notificaciones.'));
                     }}
                 }}).catch((err) => {{
                     console.log('Ocurrió un error al obtener el token: ', err);
-                    // Opcional: Mostrar una alerta si hubo un error grave
-                    // alert('Error al obtener el token de notificación.');
+                    // Aquí podrías añadir una lógica para manejar errores en la obtención del token
                 }});
             }}
             
@@ -434,7 +434,7 @@ def check_and_notify_on_change(old_df, new_df):
                     new_status = row['Estado de atención']
                     
                     if old_status != new_status:
-                        cambios_detectados.append({
+                        cambios_detected.append({
                             'Destino': row['Destino'],
                             'Folio pedido': row['Folio pedido'],
                             'Fecha': row['Fecha'],
@@ -592,334 +592,339 @@ def admin_panel():
                     st.cache_data.clear() # Limpia la caché de Streamlit para recargar datos.
                     st.rerun() # Fuerza un re-ejecución de la aplicación.
 
-            except Exception as e:
-                st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
+                except Exception as e:
+                    st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
+                    st.rerun()
+                    
+        with col2:
+            with st.expander("📅 Historial de actualizaciones"):
+                historial = cargar_historial()
+                if historial:
+                    for i, fecha in enumerate(historial[::-1], 1):
+                        try:
+                            fecha_dt = datetime.datetime.fromisoformat(fecha)
+                            st.write(f"{i}. {fecha_dt.strftime('%d/%m/%Y - %H:%M:%S Hrs.')} CDMX")
+                        except ValueError:
+                            st.write(f"{i}. (fecha inválida)")
+                else:
+                    st.write("No hay actualizaciones aún.")
+        
+        # --- Historial de Mensajes Persistente ---
+        st.markdown("---")
+        st.subheader("📜 Historial de acciones")
+        if st.session_state.messages:
+            for i, msg_data in enumerate(st.session_state.messages):
+                if msg_data['type'] == 'success':
+                    st.success(f"{i+1}. {msg_data['text']}")
+                elif msg_data['type'] == 'error':
+                    st.error(f"{i+1}. {msg_data['text']}")
+                elif msg_data['type'] == 'warning':
+                    st.warning(f"{i+1}. {msg_data['text']}")
+                elif msg_data['type'] == 'info':
+                    st.info(f"{i+1}. {msg_data['text']}")
+            if st.button("Limpiar historial"):
+                st.session_state.messages = []
                 st.rerun()
-                
-    with col2:
-        with st.expander("📅 Historial de actualizaciones"):
-            historial = cargar_historial()
-            if historial:
-                for i, fecha in enumerate(historial[::-1], 1):
-                    try:
-                        fecha_dt = datetime.datetime.fromisoformat(fecha)
-                        st.write(f"{i}. {fecha_dt.strftime('%d/%m/%Y - %H:%M:%S Hrs.')} CDMX")
-                    except ValueError:
-                        st.write(f"{i}. (fecha inválida)")
-            else:
-                st.write("No hay actualizaciones aún.")
-    
-    # --- Historial de Mensajes Persistente ---
-    st.markdown("---")
-    st.subheader("📜 Historial de acciones")
-    if st.session_state.messages:
-        for i, msg_data in enumerate(st.session_state.messages):
-            if msg_data['type'] == 'success':
-                st.success(f"{i+1}. {msg_data['text']}")
-            elif msg_data['type'] == 'error':
-                st.error(f"{i+1}. {msg_data['text']}")
-            elif msg_data['type'] == 'warning':
-                st.warning(f"{i+1}. {msg_data['text']}")
-            elif msg_data['type'] == 'info':
-                st.info(f"{i+1}. {msg_data['text']}")
-        if st.button("Limpiar historial"):
-            st.session_state.messages = []
-            st.rerun()
-    else:
-        st.info("No hay acciones recientes.")
-    # --- Fin del Historial de Mensajes ---
-
-    # --- ELIMINADO: admin_dashboard() se ha movido a su propia opción en el menú principal ---
-    # admin_dashboard() 
-    
-    if st.button("Cerrar sesión"):
-        st.session_state.logged_in = False
-        st.session_state.last_df = pd.DataFrame()
-        st.session_state.messages = []
-        st.rerun()
-            
-    st.markdown("---")
-    st.header("⚠️ Opciones de mantenimiento")
-    
-    # Sección para tokens FCM
-    st.subheader("Tokens de FCM Guardados")
-    fcm_tokens_persisted = cargar_fcm_tokens()
-    if fcm_tokens_persisted:
-        st.json(fcm_tokens_persisted)
-    else:
-        st.info("No hay tokens de FCM guardados.")
-
-    if st.button("🔴 Reiniciar tokens FCM", help="Borra todos los tokens de suscripción FCM guardados."):
-        if os.path.exists(FCM_TOKENS_PATH):
-            os.remove(FCM_TOKENS_PATH)
-            st.session_state.messages.append({'type': 'success', 'text': "🗑️ Archivo de tokens FCM eliminado."})
         else:
-            st.session_state.messages.append({'type': 'info', 'text': "Archivo de tokens FCM no encontrado."})
+            st.info("No hay acciones recientes.")
+        # --- Fin del Historial de Mensajes ---
+
+        # --- ELIMINADO: admin_dashboard() se ha movido a su propia opción en el menú principal ---
+        # admin_dashboard() 
         
-        # También limpia los tokens en la sesión actual
-        if 'fcm_tokens' in st.session_state:
-            st.session_state.fcm_tokens = {}
-        
-        st.session_state.messages.append({'type': 'warning', 'text': "¡Tokens FCM reiniciados!"})
-        st.cache_data.clear()
-        st.rerun()
-
-    if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
-        
-        archivos_a_borrar = [DB_PATH, HISTORIAL_PATH] 
-        
-        borrados = 0
-        for archivo in archivos_a_borrar:
-            if os.path.exists(archivo):
-                os.remove(archivo)
-                borrados += 1
-                st.session_state.messages.append({'type': 'success', 'text': f"🗑️ Archivo '{archivo}' eliminado."})
-            else:
-                st.session_state.messages.append({'type': 'info', 'text': f"Archivo '{archivo}' no encontrado."})
-        
-        st.session_state.messages.append({'type': 'warning', 'text': f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo."})
-        st.session_state.messages.append({'type': 'info', 'text': "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."})
-        
-        st.cache_data.clear()
-        st.rerun()
-
-# --- Función para Mostrar Fichas Visuales ---
-# Genera y muestra tarjetas visuales para cada fila de datos de destino.
-def mostrar_fichas_visuales(df_resultado):
-    colores = {
-        "PROGRAMADO": (0, 123, 255),
-        "FACTURADO": (40, 167, 69),
-        "CANCELADO": (220, 53, 69),
-        "CARGANDO": (255, 193, 7)
-    }
-    iconos = {
-        "PROGRAMADO": "📅",
-        "FACTURADO": "✅",
-        "CANCELADO": "❌",
-        "CARGANDO": "⏳"
-    }
-
-    for _, fila in df_resultado.iterrows():
-        estado = str(fila.get("Estado de atención", "")).upper()
-        if "CANCELADO" in estado:
-            rgb = colores["CANCELADO"]
-            icono = iconos["CANCELADO"]
-        elif estado == "PROGRAMADO":
-            rgb = colores["PROGRAMADO"]
-            icono = iconos["PROGRAMADO"]
-        elif estado == "FACTURADO":
-            rgb = colores["FACTURADO"]
-            icono = iconos["FACTURADO"]
-        elif estado == "CARGANDO":
-            rgb = colores["CARGANDO"]
-            icono = iconos["CARGANDO"]
-        else:
-            rgb = (108, 117, 125)
-            icono = "ℹ️"
-
-        color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
-
-        destino = fila.get('Destino', '')
-        fecha_general = fila.get('Fecha', None)
-
-        if pd.notnull(fecha_general):
-            try:
-                # Asegura que la fecha se muestre en el formato deseado
-                fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
-            except (ValueError, TypeError):
-                fecha_general = str(fecha_general)
-
-        ficha_html = f"""
-        <div style="
-            background-color: {color_rgba};
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            color: white;
-            font-weight: 600;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-        ">
-            <div style="font-size: 18px;">{icono} <b>{destino}</b></div>
-            <div style="font-size: 14px; margin-top: 4px;">
-        """
-
-        if pd.notnull(fecha_general):
-            ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
-
-        ficha_html += f"""
-                <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
-                <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
-                <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
-        """
-
-        fecha_estimada = fila.get('Fecha y hora estimada', None)
-        if pd.notnull(fecha_estimada):
-            ficha_html += f"<b>Fecha Estimada:</b> {fecha_estimada}<br>"
-
-        fecha_facturacion = fila.get('Fecha y hora de facturación', None)
-        if pd.notnull(fecha_facturacion):
-            ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
-
-        ficha_html += f"""
-                <b>Estado:</b> {estado}<br>
-            </div>
-        </div>
-        """
-        st.markdown(ficha_html, unsafe_allow_html=True)
-
-# --- Panel de Usuario ---
-# Permite a los usuarios consultar el estado de un destino específico y suscribirse a notificaciones.
-def user_panel():
-    st.title("🔍 Consulta de Estatus")
-
-    # Inicializa st.session_state.fcm_tokens cargando desde el archivo persistente
-    if 'fcm_tokens' not in st.session_state:
-        st.session_state.fcm_tokens = cargar_fcm_tokens()
-
-    if not os.path.exists(DB_PATH): 
-        st.info("Esperando que el admin suba un archivo.")
-        return
-
-    historial = cargar_historial()
-    if historial:
-        ultima_fecha_str = historial[-1]
-        try:
-            ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
-            ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
-            st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
-        except Exception:
-            st.info("📅 Última actualización: (sin datos)")
-    else:
-        st.info("📅 Última actualización: (sin datos)")
-
-    try:
-        df = cargar_datos()
-    except Exception as e:
-        st.error(f"Error al leer archivo: {e}")
-        return
-
-    if 'Destino' not in df.columns:
-        st.error("❌ Falta la columna 'Destino'")
-        return
-    if 'Fecha' not in df.columns:
-        st.error("❌ Falta la columna 'Fecha' para ordenar por día.")
-        return
-
-    pedido = st.text_input("Ingresa tu número de destino")
-    if pedido:
-        columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
-                    'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
-        columnas_validas = [col for col in columnas if col in df.columns]
-
-        df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
-        df['Destino'] = df['Destino'].astype(str).str.strip().str.upper() 
-
-        resultado = df[df['Destino_num'] == pedido.strip()]
-        
-        if not resultado.empty:
-            destino_num_para_suscripcion = str(resultado['Destino_num'].iloc[0]).strip().upper()
-            
-            # --- Sección de Suscripción a Notificaciones de Firebase (con botón y proceso automático) ---
-            st.markdown(f"""
-                ---
-                ### Suscripción a notificaciones del Destino {destino_num_para_suscripcion}
-                
-                **Paso único:** Haz clic en el botón de abajo para permitir las notificaciones de este sitio en tu navegador. Tu suscripción se guardará automáticamente.
-            """)
-            
-            # Botón para activar la suscripción
-            if st.button(f"🔔 Suscribirme a notificaciones para Destino {destino_num_para_suscripcion}", key="subscribe_button"):
-                # Inyecta JavaScript para llamar a la función global que obtiene el token
-                st.markdown(f"""
-                    <script>
-                        if (window.triggerFcmTokenAcquisition) {{
-                            window.triggerFcmTokenAcquisition();
-                        }} else {{
-                            console.error('triggerFcmTokenAcquisition no está definida.');
-                        }}
-                    </script>
-                """, unsafe_allow_html=True)
-                st.info("Solicitando permiso de notificación. Por favor, acepta la solicitud del navegador.")
-
-            # Campo oculto para recibir el token de FCM desde JavaScript
-            # Streamlit genera un elemento HTML <input> al que podemos acceder con JS
-            fcm_token_received = st.text_input(
-                "FCM Token (oculto)", 
-                value="", 
-                key="fcm_token_receiver", 
-                type="default", # Usamos default para que Streamlit genere un input normal
-                label_visibility="collapsed" # Ocultamos la etiqueta
-            )
-            
-            # CSS para ocultar el input visualmente
-            st.markdown("""
-                <style>
-                div[data-testid="stTextInput"] > div[data-baseweb="input"] {
-                    display: none;
-                }
-                </style>
-            """, unsafe_allow_html=True)
-
-            # Lógica para guardar el token una vez recibido
-            if fcm_token_received and fcm_token_received != "":
-                # Verifica si el token ya está guardado para este destino
-                if st.session_state.fcm_tokens.get(destino_num_para_suscripcion) != fcm_token_received:
-                    st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token_received
-                    guardar_fcm_tokens(st.session_state.fcm_tokens) # Guarda en el archivo persistente
-                    st.success(f"✅ ¡Suscripción exitosa! Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
-            
-            # --- Fin de la Sección de Suscripción ---
-            
-            if not resultado.empty:
-                mostrar_fichas_visuales(resultado)
-            else:
-                st.warning("No se encontró ningún destino con ese número.")
-                if 'last_df' in st.session_state and not st.session_state.last_df.empty:
-                    st.markdown("---")
-                    st.subheader("Búsqueda en base histórica")
-                    df_historico = st.session_state.last_df
-                    df_historico['Destino_num'] = df_historico['Destino'].astype(str).str.split('-').str[0].str.strip()
-                    resultado_historico = df_historico[df_historico['Destino_num'] == pedido.strip()]
-                    if not resultado_historico.empty:
-                        st.markdown("Hemos encontrado este destino en nuestra base de datos, pero no está activo en el archivo más reciente:")
-                        mostrar_fichas_visuales(resultado_historico)
-                    else:
-                        st.info("No se encontró este destino en la base de datos histórica.")
-
-# --- Lógica Principal de la Aplicación ---
-# Controla el flujo de la aplicación, mostrando el panel de usuario o el panel de administración
-# dependiendo del estado de inicio de sesión.
-def main():
-    pwa_setup()
-    # Pasa el ID del input oculto a la función fcm_pwa_setup para que JavaScript lo encuentre.
-    fcm_pwa_setup("fcm_token_receiver") 
-
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-
-    if st.session_state.logged_in:
-        st.sidebar.title("Menú")
-        opcion = st.sidebar.radio("Elige una opción:", ["Panel de administración", "Dashboard de datos", "Cerrar sesión"])
-        if opcion == "Panel de administración":
-            admin_panel()
-        elif opcion == "Dashboard de datos":
-            admin_dashboard()
-        elif opcion == "Cerrar sesión":
+        if st.button("Cerrar sesión"):
             st.session_state.logged_in = False
             st.session_state.last_df = pd.DataFrame()
             st.session_state.messages = []
             st.rerun()
-    else:
-        st.sidebar.title("Menú")
-        opcion = st.sidebar.radio("Elige una opción:", ["Consulta", "Administrador"])
-        if opcion == "Consulta":
-            user_panel()
-        elif opcion == "Administrador":
-            login()
+                
+        st.markdown("---")
+        st.header("⚠️ Opciones de mantenimiento")
+        
+        # Sección para tokens FCM
+        st.subheader("Tokens de FCM Guardados")
+        fcm_tokens_persisted = cargar_fcm_tokens()
+        if fcm_tokens_persisted:
+            st.json(fcm_tokens_persisted)
+            st.info(f"Total de tokens guardados: {len(fcm_tokens_persisted)}") # Mensaje de depuración
+        else:
+            st.info("No hay tokens de FCM guardados.")
 
-# --- Punto de Entrada de la Aplicación ---
-# Asegura que la función 'main' se ejecute cuando el script es iniciado.
-if __name__ == "__main__":
-    main()
+        if st.button("🔴 Reiniciar tokens FCM", help="Borra todos los tokens de suscripción FCM guardados."):
+            if os.path.exists(FCM_TOKENS_PATH):
+                os.remove(FCM_TOKENS_PATH)
+                st.session_state.messages.append({'type': 'success', 'text': "🗑️ Archivo de tokens FCM eliminado."})
+            else:
+                st.session_state.messages.append({'type': 'info', 'text': "Archivo de tokens FCM no encontrado."})
+            
+            # También limpia los tokens en la sesión actual
+            if 'fcm_tokens' in st.session_state:
+                st.session_state.fcm_tokens = {}
+            
+            st.session_state.messages.append({'type': 'warning', 'text': "¡Tokens FCM reiniciados!"})
+            st.cache_data.clear()
+            st.rerun()
+
+        if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
+            
+            archivos_a_borrar = [DB_PATH, HISTORIAL_PATH] 
+            
+            borrados = 0
+            for archivo in archivos_a_borrar:
+                if os.path.exists(archivo):
+                    os.remove(archivo)
+                    borrados += 1
+                    st.session_state.messages.append({'type': 'success', 'text': f"🗑️ Archivo '{archivo}' eliminado."})
+                else:
+                    st.session_state.messages.append({'type': 'info', 'text': f"Archivo '{archivo}' no encontrado."})
+            
+            st.session_state.messages.append({'type': 'warning', 'text': f"¡Se han eliminado {borrados} archivos! La base de datos se ha reiniciado por completo."})
+            st.session_state.messages.append({'type': 'info', 'text': "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."})
+            
+            st.cache_data.clear()
+            st.rerun()
+
+    # --- Función para Mostrar Fichas Visuales ---
+    # Genera y muestra tarjetas visuales para cada fila de datos de destino.
+    def mostrar_fichas_visuales(df_resultado):
+        colores = {
+            "PROGRAMADO": (0, 123, 255),
+            "FACTURADO": (40, 167, 69),
+            "CANCELADO": (220, 53, 69),
+            "CARGANDO": (255, 193, 7)
+        }
+        iconos = {
+            "PROGRAMADO": "📅",
+            "FACTURADO": "✅",
+            "CANCELADO": "❌",
+            "CARGANDO": "⏳"
+        }
+
+        for _, fila in df_resultado.iterrows():
+            estado = str(fila.get("Estado de atención", "")).upper()
+            if "CANCELADO" in estado:
+                rgb = colores["CANCELADO"]
+                icono = iconos["CANCELADO"]
+            elif estado == "PROGRAMADO":
+                rgb = colores["PROGRAMADO"]
+                icono = iconos["PROGRAMADO"]
+            elif estado == "FACTURADO":
+                rgb = colores["FACTURADO"]
+                icono = iconos["FACTURADO"]
+            elif estado == "CARGANDO":
+                rgb = colores["CARGANDO"]
+                icono = iconos["CARGANDO"]
+            else:
+                rgb = (108, 117, 125)
+                icono = "ℹ️"
+
+            color_rgba = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.65)"
+
+            destino = fila.get('Destino', '')
+            fecha_general = fila.get('Fecha', None)
+
+            if pd.notnull(fecha_general):
+                try:
+                    # Asegura que la fecha se muestre en el formato deseado
+                    fecha_general = pd.to_datetime(fecha_general).strftime('%d/%m/%Y')
+                except (ValueError, TypeError):
+                    fecha_general = str(fecha_general)
+
+            ficha_html = f"""
+            <div style="
+                background-color: {color_rgba};
+                border-radius: 8px;
+                padding: 12px;
+                margin-bottom: 10px;
+                color: white;
+                font-weight: 600;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
+            ">
+                <div style="font-size: 18px;">{icono} <b>{destino}</b></div>
+                <div style="font-size: 14px; margin-top: 4px;">
+            """
+
+            if pd.notnull(fecha_general):
+                ficha_html += f"<b>Fecha:</b> {fecha_general}<br>"
+
+            ficha_html += f"""
+                    <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
+                    <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
+                    <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
+            """
+
+            fecha_estimada = fila.get('Fecha y hora estimada', None)
+            if pd.notnull(fecha_estimada):
+                ficha_html += f"<b>Fecha Estimada:</b> {fecha_estimada}<br>"
+
+            fecha_facturacion = fila.get('Fecha y hora de facturación', None)
+            if pd.notnull(fecha_facturacion):
+                ficha_html += f"<b>Fecha Facturación:</b> {fecha_facturacion}<br>"
+
+            ficha_html += f"""
+                    <b>Estado:</b> {estado}<br>
+                </div>
+            </div>
+            """
+            st.markdown(ficha_html, unsafe_allow_html=True)
+
+    # --- Panel de Usuario ---
+    # Permite a los usuarios consultar el estado de un destino específico y suscribirse a notificaciones.
+    def user_panel():
+        st.title("🔍 Consulta de Estatus")
+
+        # Inicializa st.session_state.fcm_tokens cargando desde el archivo persistente
+        if 'fcm_tokens' not in st.session_state:
+            st.session_state.fcm_tokens = cargar_fcm_tokens()
+
+        if not os.path.exists(DB_PATH): 
+            st.info("Esperando que el admin suba un archivo.")
+            return
+
+        historial = cargar_historial()
+        if historial:
+            ultima_fecha_str = historial[-1]
+            try:
+                ultima_fecha = datetime.datetime.fromisoformat(ultima_fecha_str)
+                ultima_fecha_cdmx = ultima_fecha.astimezone(cdmx_tz)
+                st.info(f"📅 Última actualización: {ultima_fecha_cdmx.strftime('%d/%m/%Y - %H:%M Hrs.')} CDMX")
+            except Exception:
+                st.info("📅 Última actualización: (sin datos)")
+        else:
+            st.info("📅 Última actualización: (sin datos)")
+
+        try:
+            df = cargar_datos()
+        except Exception as e:
+            st.error(f"Error al leer archivo: {e}")
+            return
+
+        if 'Destino' not in df.columns:
+            st.error("❌ Falta la columna 'Destino'")
+            return
+        if 'Fecha' not in df.columns:
+            st.error("❌ Falta la columna 'Fecha' para ordenar por día.")
+            return
+
+        pedido = st.text_input("Ingresa tu número de destino")
+        if pedido:
+            columnas = ['Destino', 'Fecha', 'Producto', 'Turno', 'Capacidad programada (Litros)',
+                        'Fecha y hora estimada', 'Fecha y hora de facturación', 'Estado de atención']
+            columnas_validas = [col for col in columnas if col in df.columns]
+
+            df['Destino_num'] = df['Destino'].astype(str).str.split('-').str[0].str.strip()
+            df['Destino'] = df['Destino'].astype(str).str.strip().str.upper() 
+
+            resultado = df[df['Destino_num'] == pedido.strip()]
+            
+            if not resultado.empty:
+                destino_num_para_suscripcion = str(resultado['Destino_num'].iloc[0]).strip().upper()
+                
+                # --- Sección de Suscripción a Notificaciones de Firebase (con botón y proceso automático) ---
+                st.markdown(f"""
+                    ---
+                    ### Suscripción a notificaciones del Destino {destino_num_para_suscripcion}
+                    
+                    **Paso único:** Haz clic en el botón de abajo para permitir las notificaciones de este sitio en tu navegador. Tu suscripción se guardará automáticamente.
+                """)
+                
+                # Botón para activar la suscripción
+                if st.button(f"🔔 Suscribirme a notificaciones para Destino {destino_num_para_suscripcion}", key="subscribe_button"):
+                    # Inyecta JavaScript para llamar a la función global que obtiene el token
+                    st.markdown(f"""
+                        <script>
+                            if (window.triggerFcmTokenAcquisition) {{
+                                window.triggerFcmTokenAcquisition();
+                            }} else {{
+                                console.error('triggerFcmTokenAcquisition no está definida.');
+                            }}
+                        </script>
+                    """, unsafe_allow_html=True)
+                    st.info("Solicitando permiso de notificación. Por favor, acepta la solicitud del navegador.")
+
+                # Campo oculto para recibir el token de FCM desde JavaScript
+                # Streamlit genera un elemento HTML <input> al que podemos acceder con JS
+                fcm_token_received = st.text_input(
+                    "FCM Token (oculto)", 
+                    value="", 
+                    key="fcm_token_receiver", 
+                    type="default", # Usamos default para que Streamlit genere un input normal
+                    label_visibility="collapsed" # Ocultamos la etiqueta
+                )
+                
+                # CSS para ocultar el input visualmente
+                st.markdown("""
+                    <style>
+                    div[data-testid="stTextInput"] > div[data-baseweb="input"] {
+                        display: none;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
+
+                # Lógica para guardar el token una vez recibido
+                if fcm_token_received and fcm_token_received != "":
+                    st.info(f"DEBUG: Token recibido desde JS: {fcm_token_received[:10]}...") # Mensaje de depuración
+                    # Verifica si el token ya está guardado para este destino
+                    if st.session_state.fcm_tokens.get(destino_num_para_suscripcion) != fcm_token_received:
+                        st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token_received
+                        guardar_fcm_tokens(st.session_state.fcm_tokens) # Guarda en el archivo persistente
+                        st.success(f"✅ ¡Suscripción exitosa! Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
+                        st.info("DEBUG: Token guardado en sesión y archivo.") # Mensaje de depuración
+                    else:
+                        st.info("DEBUG: Token ya existente para este destino, no se guarda de nuevo.") # Mensaje de depuración
+                
+                # --- Fin de la Sección de Suscripción ---
+                
+                if not resultado.empty:
+                    mostrar_fichas_visuales(resultado)
+                else:
+                    st.warning("No se encontró ningún destino con ese número.")
+                    if 'last_df' in st.session_state and not st.session_state.last_df.empty:
+                        st.markdown("---")
+                        st.subheader("Búsqueda en base histórica")
+                        df_historico = st.session_state.last_df
+                        df_historico['Destino_num'] = df_historico['Destino'].astype(str).str.split('-').str[0].str.strip()
+                        resultado_historico = df_historico[df_historico['Destino_num'] == pedido.strip()]
+                        if not resultado_historico.empty:
+                            st.markdown("Hemos encontrado este destino en nuestra base de datos, pero no está activo en el archivo más reciente:")
+                            mostrar_fichas_visuales(resultado_historico)
+                        else:
+                            st.info("No se encontró este destino en la base de datos histórica.")
+
+    # --- Lógica Principal de la Aplicación ---
+    # Controla el flujo de la aplicación, mostrando el panel de usuario o el panel de administración
+    # dependiendo del estado de inicio de sesión.
+    def main():
+        pwa_setup()
+        # Pasa el ID del input oculto a la función fcm_pwa_setup para que JavaScript lo encuentre.
+        fcm_pwa_setup("fcm_token_receiver") 
+
+        if "logged_in" not in st.session_state:
+            st.session_state.logged_in = False
+
+        if st.session_state.logged_in:
+            st.sidebar.title("Menú")
+            opcion = st.sidebar.radio("Elige una opción:", ["Panel de administración", "Dashboard de datos", "Cerrar sesión"])
+            if opcion == "Panel de administración":
+                admin_panel()
+            elif opcion == "Dashboard de datos":
+                admin_dashboard()
+            elif opcion == "Cerrar sesión":
+                st.session_state.logged_in = False
+                st.session_state.last_df = pd.DataFrame()
+                st.session_state.messages = []
+                st.rerun()
+        else:
+            st.sidebar.title("Menú")
+            opcion = st.sidebar.radio("Elige una opción:", ["Consulta", "Administrador"])
+            if opcion == "Consulta":
+                user_panel()
+            elif opcion == "Administrador":
+                login()
+
+    # --- Punto de Entrada de la Aplicación ---
+    # Asegura que la función 'main' se ejecute cuando el script es iniciado.
+    if __name__ == "__main__":
+        main()
