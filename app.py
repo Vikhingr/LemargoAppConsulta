@@ -79,8 +79,13 @@ def fcm_pwa_setup(fcm_token_input_id):
 
     js_code = f"""
     <div id="firebase-config-data" data-firebase-config='{firebase_config_html_safe}' data-vapid-key="{vapid_key_js}"></div>
+    
+    <!-- Importa los scripts de Firebase desde CDN -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js"></script>
+
     <script>
-    console.log("FCM Setup script loaded via components.v1.html."); // Mensaje de depuración: Script cargado via components.v1.html
+    console.log("FCM Setup script loaded via components.v1.html.");
     
     // Obtener la configuración de Firebase y la clave VAPID del atributo data-
     const configDataElement = document.getElementById('firebase-config-data');
@@ -92,101 +97,85 @@ def fcm_pwa_setup(fcm_token_input_id):
 
     let firebaseConfig;
     try {{
-        // Ahora, firebaseConfigString debería ser una cadena JSON limpia y válida para parsear.
         firebaseConfig = JSON.parse(firebaseConfigString);
         console.log("Parsed Firebase Config:", firebaseConfig);
     }} catch (e) {{
         console.error("Error parsing Firebase config from data-attribute:", e);
-        // La inicialización de Firebase fallará si firebaseConfig es undefined debido a un error de parseo.
     }}
 
-    // Importa los módulos de Firebase de forma asíncrona.
-    import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
-        .then(() => {{ // No necesitamos el 'module' aquí si 'firebase' se vuelve global
-            console.log("Firebase app module import promise resolved."); 
-            console.log("Type of global 'firebase' before init:", typeof firebase); // Check global firebase
-            
-            if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
-                console.log("Global Firebase object found and initializeApp is a function.");
-                firebase.initializeApp(firebaseConfig);
-                console.log("Firebase app initialized successfully.");
-                // Carga el módulo de mensajería de Firebase.
-                return import('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js');
-            }} else {{
-                console.error("Global Firebase object or initializeApp method is missing after firebase-app.js import. This might be due to CDN loading behavior or version mismatch.");
-                throw new Error("Firebase app not properly loaded or accessible.");
-            }}
-        }})
-        .then(() => {{ // Este .then() tampoco necesita 'module'
-            console.log("Firebase Messaging module import promise resolved.");
-            console.log("Type of global 'firebase.messaging' before use:", typeof firebase.messaging);
+    // Function to initialize Firebase and Messaging after CDN scripts are loaded
+    function initFirebaseAndMessaging() {{
+        console.log("Attempting to initialize Firebase and Messaging...");
+        console.log("Type of global 'firebase':", typeof firebase);
+        
+        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
+            console.log("Global Firebase object found and initializeApp is a function.");
+            firebase.initializeApp(firebaseConfig);
+            console.log("Firebase app initialized successfully.");
 
+            // Asegurarse de que firebase.messaging esté disponible
             if (typeof firebase.messaging === 'function') {{
-                const messaging = firebase.messaging(); // <-- ¡Aquí está el cambio clave!
+                const messaging = firebase.messaging();
                 console.log("Firebase Messaging initialized successfully.");
 
                 // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
-                // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
                 if ('serviceWorker' in navigator) {{
                     navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
                     .then((registration) => {{
-                        console.log('Service Worker registrado con éxito:', registration); // Mensaje de depuración: SW registrado
-                        // Establece la instancia de mensajería para el Service Worker
+                        console.log('Service Worker registrado con éxito:', registration);
                         messaging.useServiceWorker(registration);
                     }})
                     .catch((err) => {{
-                        console.error('Error al registrar el Service Worker:', err); // Error de depuración: Fallo SW
+                        console.error('Error al registrar el Service Worker:', err);
                     }});
                 }} else {{
-                    console.warn('Service Workers no soportados en este navegador.'); // Advertencia de depuración: SW no soportado
+                    console.warn('Service Workers no soportados en este navegador.');
                 }}
 
                 // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
                 async function getAndSendFcmToken() {{
-                    console.log('getAndSendFcmToken: Intentando obtener el token FCM...'); // Mensaje de depuración: Inicio getAndSendFcmToken
-                    // Solicita permiso de notificación explícitamente
+                    console.log('getAndSendFcmToken: Intentando obtener el token FCM...');
                     const permission = await Notification.requestPermission();
-                    console.log('getAndSendFcmToken: Permiso de notificación:', permission); // Mensaje de depuración: Estado del permiso
+                    console.log('getAndSendFcmToken: Permiso de notificación:', permission);
 
                     if (permission === 'granted') {{
                         messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
                             if (currentToken) {{
-                                console.log('getAndSendFcmToken: FCM Registration Token:', currentToken); // Mensaje de depuración: Token obtenido
-                                // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
+                                console.log('getAndSendFcmToken: FCM Registration Token:', currentToken);
                                 const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
                                 if (hiddenInput) {{
                                     hiddenInput.value = currentToken;
-                                    // Simula un evento de cambio para que Streamlit detecte la actualización.
                                     hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                    console.log('getAndSendFcmToken: Token enviado a Streamlit.'); // Mensaje de depuración: Token enviado
+                                    console.log('getAndSendFcmToken: Token enviado a Streamlit.');
                                 }} else {{
-                                    console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.'); // Advertencia de depuración: Input oculto no encontrado
+                                    console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
                                 }}
                             }} else {{
-                                console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.'); // Mensaje de depuración: No hay token actual
+                                console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.');
                             }}
                         }}).catch((err) => {{
-                            console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err); // Error de depuración: Fallo al obtener token
+                            console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err);
                         }});
                     }} else {{
-                        console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.'); // Advertencia de depuración: Permiso denegado
+                        console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.');
                     }}
                 }}
                 
-                // Exponer la función globalmente para que Streamlit pueda llamarla
                 window.triggerFcmTokenAcquisition = getAndSendFcmToken;
-                console.log("triggerFcmTokenAcquisition function exposed globally."); // Mensaje de depuración: Función expuesta
+                console.log("triggerFcmTokenAcquisition function exposed globally.");
             }} else {{
-                console.error("Global firebase.messaging method is missing after firebase-messaging.js import. This might be due to CDN loading behavior or version mismatch.");
-                throw new Error("Firebase Messaging not properly loaded or accessible.");
+                console.error("Global firebase.messaging method is missing after firebase-messaging.js script load.");
             }}
-        }})
-        .catch((err) => {{
-            console.error("Error al cargar los scripts de Firebase o al inicializar:", err); // Mensaje de error más general
-        }});
+        }} else {{
+            console.error("Global Firebase object or initializeApp method is missing after firebase-app.js script load.");
+        }}
+    }}
+
+    // Asegurar que los scripts de Firebase se carguen antes de intentar inicializar
+    document.addEventListener('DOMContentLoaded', initFirebaseAndMessaging);
+    window.addEventListener('load', initFirebaseAndMessaging); // Fallback para asegurar la carga completa
     </script>
     """
-    # Usar components.html para incrustar el script, con altura y anchura 0 para que sea invisible
     components.html(js_code, height=0, width=0)
 
 # --- Función para Enviar Notificaciones Push con FCM ---
@@ -498,7 +487,7 @@ def check_and_notify_on_change(old_df, new_df):
             except KeyError:
                 pass
 
-        cambios_df = pd.DataFrame(cambios_detectados)
+        cambios_df = pd.DataFrame(cambios_detected)
         
         if not cambios_df.empty:
             st.session_state.messages.append({'type': 'info', 'text': f"🔍 Se detectaron {len(cambios_df)} cambios de estatus."})
