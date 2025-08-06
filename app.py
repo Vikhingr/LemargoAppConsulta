@@ -6,6 +6,7 @@ import datetime
 import json
 import altair as alt
 import zoneinfo
+import time # Importar time para simular un retraso si es necesario
 
 # --- Configuración de Zona Horaria ---
 # Define la zona horaria de la Ciudad de México para manejar fechas y horas.
@@ -46,7 +47,7 @@ HISTORIAL_PATH = "historial_actualizaciones.json"
 # --- Constantes de Configuración ---
 # Número de días para mantener los registros con estado 'FACTURADO' o 'CANCELADO'
 # antes de que sean eliminados de la base de datos.
-RETENTION_DAYS = 7 # ¡Cambiado de 90 a 7 días!
+RETENTION_DAYS = 7 
 
 # --- Configuración de PWA (Progressive Web App) ---
 # Inserta etiquetas HTML para configurar la aplicación como una PWA, incluyendo el manifiesto y los iconos.
@@ -64,7 +65,8 @@ def pwa_setup():
 # --- Configuración de Firebase Cloud Messaging (FCM) en el Frontend ---
 # Inserta el código JavaScript necesario para inicializar Firebase en el navegador,
 # solicitar permisos de notificación y obtener el token de registro de FCM.
-def fcm_pwa_setup():
+# Ahora, el token se envía automáticamente a un campo oculto de Streamlit.
+def fcm_pwa_setup(fcm_token_input_id):
     firebase_config_js = st.secrets.get("FIREBASE_CONFIG")
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
@@ -97,25 +99,36 @@ def fcm_pwa_setup():
                 }});
             }}
 
-            // Función para obtener el token de registro de FCM.
-            function getFcmToken() {{
+            // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
+            function getAndSendFcmToken() {{
                 messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
                     if (currentToken) {{
-                        // Muestra el token en la consola y en una alerta para que el usuario lo copie.
                         console.log('FCM Registration Token:', currentToken);
-                        alert('Tu token de suscripción está en la consola del navegador (F12). Cópialo y pégalo en el campo de abajo.');
+                        // Encuentra el elemento de entrada oculto de Streamlit por su ID y actualiza su valor.
+                        const hiddenInput = document.getElementById('{fcm_token_input_id}');
+                        if (hiddenInput) {{
+                            hiddenInput.value = currentToken;
+                            // Simula un evento de cambio para que Streamlit detecte la actualización.
+                            hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            console.log('Token enviado a Streamlit.');
+                        }} else {{
+                            console.warn('Elemento de entrada oculto de Streamlit no encontrado.');
+                        }}
                     }} else {{
                         console.log('No se pudo obtener el token. Solicita permiso para generar uno.');
-                        alert('Para recibir notificaciones, por favor, activa las notificaciones en tu navegador.');
+                        // Opcional: Mostrar una alerta si el usuario no dio permiso
+                        // alert('Para recibir notificaciones, por favor, activa las notificaciones en tu navegador.');
                     }}
                 }}).catch((err) => {{
                     console.log('Ocurrió un error al obtener el token: ', err);
-                    alert('Error al obtener el token de notificación.');
+                    // Opcional: Mostrar una alerta si hubo un error grave
+                    // alert('Error al obtener el token de notificación.');
                 }});
             }}
             
-            // Llama a getFcmToken cuando la ventana se carga para solicitar el token.
-            window.onload = getFcmToken;
+            // Llama a la función para obtener y enviar el token automáticamente al cargar la página.
+            // Se usa un pequeño retraso para asegurar que el DOM de Streamlit esté listo.
+            setTimeout(getAndSendFcmToken, 1000); 
 
             // Escucha las notificaciones cuando la aplicación está en primer plano.
             messaging.onMessage(function(payload) {{
@@ -601,7 +614,8 @@ def admin_panel():
         st.info("No hay acciones recientes.")
     # --- Fin del Historial de Mensajes ---
 
-    admin_dashboard()
+    # --- ELIMINADO: admin_dashboard() se ha movido a su propia opción en el menú principal ---
+    # admin_dashboard() 
     
     if st.button("Cerrar sesión"):
         st.session_state.logged_in = False
@@ -764,28 +778,45 @@ def user_panel():
         if not resultado.empty:
             destino_num_para_suscripcion = str(resultado['Destino_num'].iloc[0]).strip().upper()
             
-            # --- Sección de Suscripción a Notificaciones de Firebase ---
+            # --- Sección de Suscripción a Notificaciones de Firebase (Automática) ---
             st.markdown(f"""
                 ---
                 ### Suscripción a notificaciones del Destino {destino_num_para_suscripcion}
                 
-                **Paso 1:** Permite las notificaciones de este sitio en tu navegador cuando te lo pregunte.
-                
-                **Paso 2:** Haz clic en el botón de abajo y revisa la **consola del navegador (F12)**. El token de suscripción aparecerá ahí y en una alerta.
+                **Paso único:** Permite las notificaciones de este sitio en tu navegador cuando te lo pregunte.
+                Tu suscripción se guardará automáticamente.
             """)
             
-            if st.button(f"🔔 Obtener mi token para Destino {destino_num_para_suscripcion}", key="get_token"):
-                st.info("Copia el token que se mostró en la consola y pégalo en el campo siguiente.")
-                
-            st.markdown("---")
-            fcm_token = st.text_input("Pega tu Token de FCM aquí:", key="fcm_token_input")
+            # Campo oculto para recibir el token de FCM desde JavaScript
+            # st.text_input genera un elemento HTML <input> al que podemos acceder con JS
+            fcm_token_received = st.text_input(
+                "FCM Token (oculto)", 
+                value="", 
+                key="fcm_token_receiver", 
+                type="default", # Usamos default para que Streamlit genere un input normal
+                label_visibility="collapsed" # Ocultamos la etiqueta
+            )
             
-            if fcm_token:
-                # Guarda el token en el estado de la sesión de Streamlit para que el backend pueda usarlo.
+            # CSS para ocultar el input visualmente
+            st.markdown("""
+                <style>
+                div[data-testid="stTextInput"] > div[data-baseweb="input"] {
+                    display: none;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # Lógica para guardar el token una vez recibido
+            if fcm_token_received and fcm_token_received != "":
                 if 'fcm_tokens' not in st.session_state:
                     st.session_state.fcm_tokens = {}
-                st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token
-                st.success(f"✅ Token guardado. Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
+                
+                # Solo guarda si el token es nuevo o diferente al ya guardado para este destino
+                if st.session_state.fcm_tokens.get(destino_num_para_suscripcion) != fcm_token_received:
+                    st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token_received
+                    st.success(f"✅ ¡Suscripción exitosa! Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
+                    # Opcional: Puedes forzar un rerun si quieres que el mensaje de éxito aparezca de inmediato
+                    # st.rerun()
             
             # --- Fin de la Sección de Suscripción ---
             
@@ -810,7 +841,8 @@ def user_panel():
 # dependiendo del estado de inicio de sesión.
 def main():
     pwa_setup()
-    fcm_pwa_setup() # Llama a la función que configura Firebase y PWA en el frontend.
+    # Pasa el ID del input oculto a la función fcm_pwa_setup para que JavaScript lo encuentre.
+    fcm_pwa_setup("fcm_token_receiver") 
 
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
