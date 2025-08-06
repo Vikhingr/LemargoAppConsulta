@@ -8,6 +8,7 @@ import altair as alt
 import zoneinfo
 import time # Importar time para simular un retraso si es necesario
 import streamlit.components.v1 as components # Importar components
+import html # Importar el módulo html para escapar
 
 # --- Configuración de Zona Horaria ---
 # Define la zona horaria de la Ciudad de México para manejar fechas y horas.
@@ -69,14 +70,15 @@ def pwa_setup():
 # solicitar permisos de notificación y obtener el token de registro de FCM.
 # Ahora, el token se envía automáticamente a un campo oculto de Streamlit.
 def fcm_pwa_setup(fcm_token_input_id):
-    firebase_config_raw = st.secrets.get("FIREBASE_CONFIG")
-    # Para el atributo data-, debemos asegurarnos de que la cadena JSON sea válida y escapada.
-    firebase_config_attr = json.dumps(firebase_config_raw) 
+    # Elimina cualquier espacio en blanco o salto de línea al inicio/final de la cadena JSON.
+    firebase_config_raw = st.secrets.get("FIREBASE_CONFIG").strip() 
+    # Escapa la cadena JSON para que sea segura para el atributo HTML.
+    firebase_config_html_safe = html.escape(firebase_config_raw, quote=True)
     
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
     js_code = f"""
-    <div id="firebase-config-data" data-firebase-config={firebase_config_attr} data-vapid-key="{vapid_key_js}"></div>
+    <div id="firebase-config-data" data-firebase-config='{firebase_config_html_safe}' data-vapid-key="{vapid_key_js}"></div>
     <script>
     console.log("FCM Setup script loaded via components.v1.html."); // Mensaje de depuración: Script cargado via components.v1.html
     
@@ -90,12 +92,12 @@ def fcm_pwa_setup(fcm_token_input_id):
 
     let firebaseConfig;
     try {{
+        // Ahora, firebaseConfigString debería ser una cadena JSON limpia y válida para parsear.
         firebaseConfig = JSON.parse(firebaseConfigString);
         console.log("Parsed Firebase Config:", firebaseConfig);
     }} catch (e) {{
         console.error("Error parsing Firebase config from data-attribute:", e);
-        // Eliminado: 'return;' aquí causaba el error 'Illegal return statement'.
-        // La inicialización de Firebase fallará si firebaseConfig es undefined.
+        // La inicialización de Firebase fallará si firebaseConfig es undefined debido a un error de parseo.
     }}
 
     // Importa los módulos de Firebase de forma asíncrona.
@@ -448,7 +450,7 @@ def check_and_notify_on_change(old_df, new_df):
                     df_cleaned[col] = df_cleaned[col].astype(str).str.strip().str.upper()
             
             if 'Fecha' in df_cleaned.columns:
-                df_cleaned['Fecha'] = pd.to_datetime(df_cleaned['Fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
+                df_cleaned['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
             
             return df_cleaned
 
