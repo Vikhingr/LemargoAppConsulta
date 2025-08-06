@@ -434,7 +434,7 @@ def check_and_notify_on_change(old_df, new_df):
                     new_status = row['Estado de atención']
                     
                     if old_status != new_status:
-                        cambios_detected.append({
+                        cambios_detectados.append({ # <--- CORRECCIÓN AQUÍ: de 'cambios_detected' a 'cambios_detectados'
                             'Destino': row['Destino'],
                             'Folio pedido': row['Folio pedido'],
                             'Fecha': row['Fecha'],
@@ -592,10 +592,10 @@ def admin_panel():
                     st.cache_data.clear() # Limpia la caché de Streamlit para recargar datos.
                     st.rerun() # Fuerza un re-ejecución de la aplicación.
 
-                except Exception as e:
-                    st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
-                    st.rerun()
-                    
+            except Exception as e:
+                st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
+                st.rerun()
+                
         with col2:
             with st.expander("📅 Historial de actualizaciones"):
                 historial = cargar_historial()
