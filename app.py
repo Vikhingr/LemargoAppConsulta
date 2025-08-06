@@ -587,14 +587,6 @@ def admin_panel():
             else:
                 st.write("No hay actualizaciones aún.")
 
-# --- Tu aplicación de Streamlit guarda los tokens de FCM ---
-    st.markdown("---")
-st.subheader("Tokens de FCM Guardados (Solo para depuración)")
-if 'fcm_tokens' in st.session_state and st.session_state.fcm_tokens:
-    st.write(st.session_state.fcm_tokens)
-else:
-    st.info("No hay tokens de FCM guardados en la sesión actual.")
-
     
     # --- Historial de Mensajes Persistente ---
     st.markdown("---")
@@ -645,6 +637,14 @@ else:
         
         st.cache_data.clear()
         st.rerun()
+
+# --- Tu aplicación de Streamlit guarda los tokens de FCM ---
+    st.markdown("---")
+st.subheader("Tokens de FCM Guardados (Solo para depuración)")
+if 'fcm_tokens' in st.session_state and st.session_state.fcm_tokens:
+    st.write(st.session_state.fcm_tokens)
+else:
+    st.info("No hay tokens de FCM guardados en la sesión actual.")
 
 # --- Función para Mostrar Fichas Visuales ---
 # Genera y muestra tarjetas visuales para cada fila de datos de destino.
