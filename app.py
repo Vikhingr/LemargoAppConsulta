@@ -43,6 +43,7 @@ ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 # Define las rutas para la base de datos principal (JSON) y el historial de actualizaciones.
 DB_PATH = "golden_record.json"
 HISTORIAL_PATH = "historial_actualizaciones.json"
+FCM_TOKENS_PATH = "fcm_tokens.json" # Nueva ruta para el archivo de tokens FCM
 
 # --- Constantes de Configuración ---
 # Número de días para mantener los registros con estado 'FACTURADO' o 'CANCELADO'
@@ -200,6 +201,27 @@ def guardar_datos(df):
         df.to_json(DB_PATH, orient='records', date_format='iso')
     except Exception as e:
         st.error(f"Error al guardar la base de datos: {e}")
+
+# --- Carga de Tokens FCM Persistentes ---
+# Carga el diccionario de tokens de FCM desde un archivo JSON.
+def cargar_fcm_tokens():
+    if os.path.exists(FCM_TOKENS_PATH):
+        try:
+            with open(FCM_TOKENS_PATH, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            st.warning(f"Error al cargar tokens FCM desde '{FCM_TOKENS_PATH}': {e}. Se iniciará con tokens vacíos.")
+            return {}
+    return {}
+
+# --- Guardado de Tokens FCM Persistentes ---
+# Guarda el diccionario de tokens de FCM en un archivo JSON.
+def guardar_fcm_tokens(tokens_dict):
+    try:
+        with open(FCM_TOKENS_PATH, "w") as f:
+            json.dump(tokens_dict, f, indent=4)
+    except Exception as e:
+        st.error(f"Error al guardar tokens FCM en '{FCM_TOKENS_PATH}': {e}")
 
 # --- Lógica de Inicio de Sesión de Administrador ---
 # Muestra un formulario de inicio de sesión para el administrador.
@@ -429,9 +451,9 @@ def check_and_notify_on_change(old_df, new_df):
             st.session_state.messages.append({'type': 'info', 'text': f"🔍 Se detectaron {len(cambios_df)} cambios de estatus."})
             st.warning("🔔 Enviando notificaciones...")
             
-            # Verifica si hay tokens de FCM guardados en la sesión.
-            if 'fcm_tokens' not in st.session_state:
-                st.session_state.fcm_tokens = {}
+            # Carga los tokens FCM persistentes para enviar notificaciones
+            fcm_tokens_persisted = cargar_fcm_tokens()
+            if not fcm_tokens_persisted:
                 st.warning("⚠️ No se encontraron tokens de FCM guardados para notificar.")
                 return
 
@@ -441,8 +463,8 @@ def check_and_notify_on_change(old_df, new_df):
                 destino_num = str(destino).split('-')[0].strip().upper()
                 
                 # Si existe un token para este destino, envía la notificación.
-                if destino_num in st.session_state.fcm_tokens:
-                    token = st.session_state.fcm_tokens[destino_num]
+                if destino_num in fcm_tokens_persisted: # Usa los tokens cargados desde el archivo
+                    token = fcm_tokens_persisted[destino_num]
                     estado_anterior = row['Estado de atención_old']
                     estado_nuevo = row['Estado de atención_new']
                     
@@ -586,7 +608,6 @@ def admin_panel():
                         st.write(f"{i}. (fecha inválida)")
             else:
                 st.write("No hay actualizaciones aún.")
-
     
     # --- Historial de Mensajes Persistente ---
     st.markdown("---")
@@ -619,6 +640,30 @@ def admin_panel():
             
     st.markdown("---")
     st.header("⚠️ Opciones de mantenimiento")
+    
+    # Sección para tokens FCM
+    st.subheader("Tokens de FCM Guardados")
+    fcm_tokens_persisted = cargar_fcm_tokens()
+    if fcm_tokens_persisted:
+        st.json(fcm_tokens_persisted)
+    else:
+        st.info("No hay tokens de FCM guardados.")
+
+    if st.button("🔴 Reiniciar tokens FCM", help="Borra todos los tokens de suscripción FCM guardados."):
+        if os.path.exists(FCM_TOKENS_PATH):
+            os.remove(FCM_TOKENS_PATH)
+            st.session_state.messages.append({'type': 'success', 'text': "🗑️ Archivo de tokens FCM eliminado."})
+        else:
+            st.session_state.messages.append({'type': 'info', 'text': "Archivo de tokens FCM no encontrado."})
+        
+        # También limpia los tokens en la sesión actual
+        if 'fcm_tokens' in st.session_state:
+            st.session_state.fcm_tokens = {}
+        
+        st.session_state.messages.append({'type': 'warning', 'text': "¡Tokens FCM reiniciados!"})
+        st.cache_data.clear()
+        st.rerun()
+
     if st.button("🔴 Reiniciar base de datos", help="Borra todos los archivos de historial para empezar de cero."):
         
         archivos_a_borrar = [DB_PATH, HISTORIAL_PATH] 
@@ -637,14 +682,6 @@ def admin_panel():
         
         st.cache_data.clear()
         st.rerun()
-
-# --- Tu aplicación de Streamlit guarda los tokens de FCM ---
-    st.markdown("---")
-st.subheader("Tokens de FCM Guardados (Solo para depuración)")
-if 'fcm_tokens' in st.session_state and st.session_state.fcm_tokens:
-    st.write(st.session_state.fcm_tokens)
-else:
-    st.info("No hay tokens de FCM guardados en la sesión actual.")
 
 # --- Función para Mostrar Fichas Visuales ---
 # Genera y muestra tarjetas visuales para cada fila de datos de destino.
@@ -737,6 +774,10 @@ def mostrar_fichas_visuales(df_resultado):
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
+    # Inicializa st.session_state.fcm_tokens cargando desde el archivo persistente
+    if 'fcm_tokens' not in st.session_state:
+        st.session_state.fcm_tokens = cargar_fcm_tokens()
+
     if not os.path.exists(DB_PATH): 
         st.info("Esperando que el admin suba un archivo.")
         return
@@ -823,14 +864,11 @@ def user_panel():
 
             # Lógica para guardar el token una vez recibido
             if fcm_token_received and fcm_token_received != "":
-                if 'fcm_tokens' not in st.session_state:
-                    st.session_state.fcm_tokens = {}
-                
-                # Solo guarda si el token es nuevo o diferente al ya guardado para este destino
+                # Verifica si el token ya está guardado para este destino
                 if st.session_state.fcm_tokens.get(destino_num_para_suscripcion) != fcm_token_received:
                     st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token_received
+                    guardar_fcm_tokens(st.session_state.fcm_tokens) # Guarda en el archivo persistente
                     st.success(f"✅ ¡Suscripción exitosa! Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
-                    # No se usa st.rerun() aquí para evitar que la página se recargue inmediatamente después del mensaje de éxito.
             
             # --- Fin de la Sección de Suscripción ---
             
