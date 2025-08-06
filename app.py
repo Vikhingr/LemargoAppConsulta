@@ -7,6 +7,7 @@ import json
 import altair as alt
 import zoneinfo
 import time # Importar time para simular un retraso si es necesario
+import streamlit.components.v1 as components # Importar components
 
 # --- Configuración de Zona Horaria ---
 # Define la zona horaria de la Ciudad de México para manejar fechas y horas.
@@ -71,9 +72,9 @@ def fcm_pwa_setup(fcm_token_input_id):
     firebase_config_js = st.secrets.get("FIREBASE_CONFIG")
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
-    st.markdown(f"""
+    js_code = f"""
     <script>
-    console.log("FCM Setup script loaded."); // Mensaje de depuración: Script cargado
+    console.log("FCM Setup script loaded via components.v1.html."); // Mensaje de depuración: Script cargado via components.v1.html
     // Importa los módulos de Firebase de forma asíncrona.
     import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
         .then((module) => {{
@@ -145,7 +146,9 @@ def fcm_pwa_setup(fcm_token_input_id):
             console.error("Error al cargar los scripts de Firebase", err); // Error de depuración: Fallo carga scripts
         }});
     </script>
-    """, unsafe_allow_html=True)
+    """
+    # Usar components.html para incrustar el script, con altura y anchura 0 para que sea invisible
+    components.html(js_code, height=0, width=0)
 
 # --- Función para Enviar Notificaciones Push con FCM ---
 # Envía una notificación push a un token de registro de FCM específico utilizando Firebase Admin SDK.
@@ -790,11 +793,6 @@ def user_panel():
     if 'fcm_tokens' not in st.session_state:
         st.session_state.fcm_tokens = cargar_fcm_tokens()
 
-    # Esta comprobación ya no es necesaria aquí, se maneja globalmente en main()
-    # if not os.path.exists(DB_PATH): 
-    #     st.info("Esperando que el admin suba un archivo.")
-    #     return
-
     historial = cargar_historial()
     if historial:
         ultima_fecha_str = historial[-1]
@@ -845,18 +843,16 @@ def user_panel():
             # Botón para activar la suscripción
             if st.button(f"🔔 Suscribirme a notificaciones para Destino {destino_num_para_suscripcion}", key="subscribe_button"):
                 # Inyecta JavaScript para llamar a la función global que obtiene el token
+                # No hay setTimeout aquí, la llamada es directa
                 st.markdown(f"""
                     <script>
-                        console.log("Button clicked: Attempting to call triggerFcmTokenAcquisition."); // Mensaje de depuración: Botón clicado
-                        // Añade un pequeño retraso para asegurar que el DOM esté listo
-                        setTimeout(() => {{
-                            if (window.triggerFcmTokenAcquisition) {{
-                                console.log("Calling triggerFcmTokenAcquisition..."); // Mensaje de depuración: Llamando a la función
-                                window.triggerFcmTokenAcquisition();
-                            }} else {{
-                                console.error('triggerFcmTokenAcquisition no está definida al momento de la llamada.'); // Error de depuración: Función no definida
-                            }}
-                        }}, 500); // 500ms de retraso
+                        console.log("Button clicked: Attempting to call triggerFcmTokenAcquisition directly."); // Mensaje de depuración: Botón clicado, llamada directa
+                        if (window.triggerFcmTokenAcquisition) {{
+                            console.log("Calling triggerFcmTokenAcquisition..."); // Mensaje de depuración: Llamando a la función
+                            window.triggerFcmTokenAcquisition();
+                        }} else {{
+                            console.error('triggerFcmTokenAcquisition no está definida al momento de la llamada del botón.'); // Error de depuración: Función no definida
+                        }}
                     </script>
                 """, unsafe_allow_html=True)
                 st.info("Solicitando permiso de notificación. Por favor, acepta la solicitud del navegador.")
@@ -916,6 +912,7 @@ def user_panel():
 def main():
     pwa_setup()
     # Pasa el ID del input oculto a la función fcm_pwa_setup para que JavaScript lo encuentre.
+    # Usamos components.html aquí para una inyección de script más robusta.
     fcm_pwa_setup("fcm_token_receiver") 
 
     if "logged_in" not in st.session_state:
