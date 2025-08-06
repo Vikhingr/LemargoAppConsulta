@@ -117,61 +117,69 @@ def fcm_pwa_setup(fcm_token_input_id):
                 throw new Error("Firebase app not properly loaded or accessible.");
             }}
         }})
-        .then((module) => {{
-            const messaging = module.default();
-            console.log("Firebase Messaging module loaded.");
+        .then(() => {{ // Este .then() tampoco necesita 'module'
+            console.log("Firebase Messaging module import promise resolved.");
+            console.log("Type of global 'firebase.messaging' before use:", typeof firebase.messaging);
 
-            // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
-            // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
-            if ('serviceWorker' in navigator) {{
-                navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
-                .then((registration) => {{
-                    console.log('Service Worker registrado con éxito:', registration); // Mensaje de depuración: SW registrado
-                    // Establece la instancia de mensajería para el Service Worker
-                    messaging.useServiceWorker(registration);
-                }})
-                .catch((err) => {{
-                    console.error('Error al registrar el Service Worker:', err); // Error de depuración: Fallo SW
-                }});
-            }} else {{
-                console.warn('Service Workers no soportados en este navegador.'); // Advertencia de depuración: SW no soportado
-            }}
+            if (typeof firebase.messaging === 'function') {{
+                const messaging = firebase.messaging(); // <-- ¡Aquí está el cambio clave!
+                console.log("Firebase Messaging initialized successfully.");
 
-            // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
-            async function getAndSendFcmToken() {{
-                console.log('getAndSendFcmToken: Intentando obtener el token FCM...'); // Mensaje de depuración: Inicio getAndSendFcmToken
-                // Solicita permiso de notificación explícitamente
-                const permission = await Notification.requestPermission();
-                console.log('getAndSendFcmToken: Permiso de notificación:', permission); // Mensaje de depuración: Estado del permiso
-
-                if (permission === 'granted') {{
-                    messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
-                        if (currentToken) {{
-                            console.log('getAndSendFcmToken: FCM Registration Token:', currentToken); // Mensaje de depuración: Token obtenido
-                            // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
-                            const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
-                            if (hiddenInput) {{
-                                hiddenInput.value = currentToken;
-                                // Simula un evento de cambio para que Streamlit detecte la actualización.
-                                hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                console.log('getAndSendFcmToken: Token enviado a Streamlit.'); // Mensaje de depuración: Token enviado
-                            }} else {{
-                                console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.'); // Advertencia de depuración: Input oculto no encontrado
-                            }}
-                        }} else {{
-                            console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.'); // Mensaje de depuración: No hay token actual
-                        }}
-                    }}).catch((err) => {{
-                        console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err); // Error de depuración: Fallo al obtener token
+                // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
+                // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
+                if ('serviceWorker' in navigator) {{
+                    navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
+                    .then((registration) => {{
+                        console.log('Service Worker registrado con éxito:', registration); // Mensaje de depuración: SW registrado
+                        // Establece la instancia de mensajería para el Service Worker
+                        messaging.useServiceWorker(registration);
+                    }})
+                    .catch((err) => {{
+                        console.error('Error al registrar el Service Worker:', err); // Error de depuración: Fallo SW
                     }});
                 }} else {{
-                    console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.'); // Advertencia de depuración: Permiso denegado
+                    console.warn('Service Workers no soportados en este navegador.'); // Advertencia de depuración: SW no soportado
                 }}
+
+                // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
+                async function getAndSendFcmToken() {{
+                    console.log('getAndSendFcmToken: Intentando obtener el token FCM...'); // Mensaje de depuración: Inicio getAndSendFcmToken
+                    // Solicita permiso de notificación explícitamente
+                    const permission = await Notification.requestPermission();
+                    console.log('getAndSendFcmToken: Permiso de notificación:', permission); // Mensaje de depuración: Estado del permiso
+
+                    if (permission === 'granted') {{
+                        messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
+                            if (currentToken) {{
+                                console.log('getAndSendFcmToken: FCM Registration Token:', currentToken); // Mensaje de depuración: Token obtenido
+                                // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
+                                const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
+                                if (hiddenInput) {{
+                                    hiddenInput.value = currentToken;
+                                    // Simula un evento de cambio para que Streamlit detecte la actualización.
+                                    hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    console.log('getAndSendFcmToken: Token enviado a Streamlit.'); // Mensaje de depuración: Token enviado
+                                }} else {{
+                                    console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.'); // Advertencia de depuración: Input oculto no encontrado
+                                }}
+                            }} else {{
+                                console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.'); // Mensaje de depuración: No hay token actual
+                            }}
+                        }}).catch((err) => {{
+                            console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err); // Error de depuración: Fallo al obtener token
+                        }});
+                    }} else {{
+                        console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.'); // Advertencia de depuración: Permiso denegado
+                    }}
+                }}
+                
+                // Exponer la función globalmente para que Streamlit pueda llamarla
+                window.triggerFcmTokenAcquisition = getAndSendFcmToken;
+                console.log("triggerFcmTokenAcquisition function exposed globally."); // Mensaje de depuración: Función expuesta
+            }} else {{
+                console.error("Global firebase.messaging method is missing after firebase-messaging.js import. This might be due to CDN loading behavior or version mismatch.");
+                throw new Error("Firebase Messaging not properly loaded or accessible.");
             }}
-            
-            // Exponer la función globalmente para que Streamlit pueda llamarla
-            window.triggerFcmTokenAcquisition = getAndSendFcmToken;
-            console.log("triggerFcmTokenAcquisition function exposed globally."); // Mensaje de depuración: Función expuesta
         }})
         .catch((err) => {{
             console.error("Error al cargar los scripts de Firebase o al inicializar:", err); // Mensaje de error más general
