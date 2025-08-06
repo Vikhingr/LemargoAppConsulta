@@ -4,26 +4,47 @@ import pandas as pd
 import requests
 import datetime
 import json
-import hashlib
 import altair as alt
 import zoneinfo
 
-# --- Zona Horaria ---
+# --- Configuración de Zona Horaria ---
+# Define la zona horaria de la Ciudad de México para manejar fechas y horas.
 cdmx_tz = zoneinfo.ZoneInfo("America/Mexico_City")
 
-# --- OneSignal Config desde secrets ---
-APP_ID = st.secrets.get("ONESIGNAL_APP_ID")
-REST_API_KEY = st.secrets.get("ONESIGNAL_REST_API_KEY")
+# --- Importaciones y Configuración de Firebase Admin SDK ---
+# Importa los módulos necesarios de Firebase Admin SDK para interactuar con Firebase.
+import firebase_admin
+from firebase_admin import credentials, messaging
 
-# --- Credenciales admin desde secrets ---
+# --- Carga Segura de Credenciales de Firebase ---
+# Carga las claves de Firebase (cuenta de servicio, clave VAPID y configuración del frontend)
+# directamente desde los secretos configurados en Streamlit Cloud.
+try:
+    FIREBASE_SERVICE_ACCOUNT_JSON = json.loads(st.secrets.get("FIREBASE_SERVICE_ACCOUNT"))
+    FIREBASE_VAPID_KEY = st.secrets.get("FIREBASE_VAPID_KEY")
+    FIREBASE_CONFIG = st.secrets.get("FIREBASE_CONFIG")
+    
+    # Inicializa el SDK de Firebase Admin si aún no está inicializado.
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_JSON)
+        firebase_admin.initialize_app(cred)
+    st.info("✅ Firebase Admin SDK inicializado correctamente.")
+except Exception as e:
+    st.error(f"❌ Error al inicializar Firebase Admin SDK. Asegúrate de que las claves estén en los Secrets de Streamlit Cloud. Error: {e}")
+    st.stop() # Detiene la ejecución de la aplicación si hay un error crítico.
+
+# --- Credenciales de Administrador ---
+# Carga el usuario y la contraseña del administrador desde los secretos de Streamlit Cloud.
 ADMIN_USER = st.secrets.get("ADMIN_USER")
 ADMIN_PASS = st.secrets.get("ADMIN_PASS")
 
-# --- Rutas y archivos ---
+# --- Rutas de Archivos de Datos ---
+# Define las rutas para la base de datos principal y el historial de actualizaciones.
 DB_PATH = "golden_record.json"
 HISTORIAL_PATH = "historial_actualizaciones.json"
 
-# --- PWA Setup (manifest e iconos) ---
+# --- Configuración de PWA (Progressive Web App) ---
+# Inserta etiquetas HTML para configurar la aplicación como una PWA, incluyendo el manifiesto y los iconos.
 def pwa_setup():
     st.markdown("""
         <link rel="manifest" href="public/manifest.json">
@@ -35,101 +56,82 @@ def pwa_setup():
         <link rel="icon" type="image/png" sizes="192x192" href="public/icons/icon-192.png">
     """, unsafe_allow_html=True)
 
-# --- OneSignal Web Push Setup con prompt automático ---
-def onesignal_web_push_setup():
-    if not APP_ID:
-        st.error("❌ APP_ID de OneSignal no configurado en secrets.")
-        return
+# --- Configuración de Firebase Cloud Messaging (FCM) en el Frontend ---
+# Inserta el código JavaScript necesario para inicializar Firebase en el navegador,
+# solicitar permisos de notificación y obtener el token de registro de FCM.
+def fcm_pwa_setup():
+    firebase_config_js = st.secrets.get("FIREBASE_CONFIG")
+    vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
     st.markdown(f"""
     <script>
-    (function() {{
-        function loadOneSignalSDK(callback) {{
-            var script = document.createElement('script');
-            script.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-            script.async = true;
-            script.onload = callback;
-            document.head.appendChild(script);
-        }}
+    // Importa los módulos de Firebase de forma asíncrona.
+    import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
+        .then((module) => {{
+            const firebase = module.default;
+            // Inicializa la aplicación Firebase con la configuración proporcionada.
+            firebase.initializeApp(JSON.parse('{firebase_config_js}'));
 
-        function initOneSignal() {{
-            window.OneSignal = window.OneSignal || [];
-            OneSignal.push(function() {{
-                OneSignal.init({{
-                    appId: "{APP_ID}",
-                    notifyButton: {{
-                        enable: true,
-                    }},
-                    allowLocalhostAsSecureOrigin: true,
-                    serviceWorkerPath: "public/OneSignalSDKWorker.js",
-                    serviceWorkerUpdaterPath: "public/OneSignalSDKUpdaterWorker.js"
+            // Carga el módulo de mensajería de Firebase.
+            return import('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js');
+        }})
+        .then((module) => {{
+            const messaging = module.default();
+
+            // Función para obtener el token de registro de FCM.
+            function getFcmToken() {{
+                messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
+                    if (currentToken) {{
+                        // Muestra el token en la consola y en una alerta para que el usuario lo copie.
+                        console.log('FCM Registration Token:', currentToken);
+                        alert('Tu token de suscripción está en la consola del navegador (F12). Cópialo y pégalo en el campo de abajo.');
+                    }} else {{
+                        console.log('No se pudo obtener el token. Solicita permiso para generar uno.');
+                        alert('Para recibir notificaciones, por favor, activa las notificaciones en tu navegador.');
+                    }}
+                }}).catch((err) => {{
+                    console.log('Ocurrió un error al obtener el token: ', err);
+                    alert('Error al obtener el token de notificación.');
                 }});
-                OneSignal.showSlidedownPrompt();
+            }}
+            
+            // Llama a getFcmToken cuando la ventana se carga para solicitar el token.
+            window.onload = getFcmToken;
+
+            // Escucha las notificaciones cuando la aplicación está en primer plano.
+            messaging.onMessage(function(payload) {{
+                console.log('Mensaje recibido en primer plano: ', payload);
+                alert(payload.notification.title + ": " + payload.notification.body);
             }});
-        }}
-
-        if (typeof OneSignal === "undefined") {{
-            loadOneSignalSDK(initOneSignal);
-        }} else {{
-            initOneSignal();
-        }}
-    }})();
+        }})
+        .catch((err) => {{
+            console.error("Error al cargar los scripts de Firebase", err);
+        }});
     </script>
     """, unsafe_allow_html=True)
 
-# --- Banner instalación PWA (opcional, ya que el prompt es automático) ---
-def pwa_install_prompt():
-    st.markdown("""
-    <script>
-      let deferredPrompt;
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then((choiceResult) => {
-          if(choiceResult.outcome === 'accepted'){
-            console.log('Usuario aceptó instalar');
-          } else {
-            console.log('Usuario rechazó instalar');
-          }
-          deferredPrompt = null;
-        });
-      });
-    </script>
-    """, unsafe_allow_html=True)
-
-
-# --- NUEVA FUNCIÓN: Enviar notificación a un destino específico ---
-def enviar_notificacion_por_destino(destino, titulo, mensaje):
-    if not REST_API_KEY or not APP_ID:
-        st.error("❌ Claves OneSignal no configuradas correctamente.")
+# --- Función para Enviar Notificaciones Push con FCM ---
+# Envía una notificación push a un token de registro de FCM específico utilizando Firebase Admin SDK.
+def enviar_notificacion_por_token(token, titulo, mensaje):
+    if not token:
+        st.error("❌ No hay un token de FCM válido para enviar la notificación.")
         return
 
-    url = "https://onesignal.com/api/v1/notifications"
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Authorization": f"Basic {REST_API_KEY}"
-    }
-
-    payload = {
-        "app_id": APP_ID,
-        "filters": [
-            {"field": "tag", "key": "destino_id", "relation": "=", "value": str(destino)}
-        ],
-        "headings": {"en": titulo},
-        "contents": {"en": mensaje},
-        "ios_sound": "default",
-        "android_sound": "default"
-    }
-
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        st.success(f"✅ Notificación enviada al destino {destino}")
-    except requests.RequestException as e:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=titulo,
+                body=mensaje,
+            ),
+            token=token,
+        )
+        response = messaging.send(message)
+        st.success(f"✅ Notificación enviada con éxito. ID de respuesta: {response}")
+    except Exception as e:
         st.error(f"❌ Error al enviar notificación: {e}")
 
-# --- Historial ---
+# --- Carga de Historial de Actualizaciones ---
+# Carga el historial de las fechas de actualización de la base de datos desde un archivo JSON.
 def cargar_historial():
     if os.path.exists(HISTORIAL_PATH):
         try:
@@ -139,6 +141,8 @@ def cargar_historial():
             return []
     return []
 
+# --- Guardado de Historial de Actualizaciones ---
+# Guarda una nueva fecha de actualización en el historial.
 def guardar_historial(fecha_hora):
     historial = cargar_historial()
     historial.append(fecha_hora)
@@ -148,7 +152,8 @@ def guardar_historial(fecha_hora):
     except Exception as e:
         st.error(f"Error guardando historial: {e}")
 
-# --- Datos con cache ---
+# --- Carga de Datos (con caché) ---
+# Carga la base de datos principal desde un archivo JSON, utilizando caché para optimizar el rendimiento.
 @st.cache_data(show_spinner=False)
 def cargar_datos():
     if os.path.exists(DB_PATH):
@@ -160,21 +165,18 @@ def cargar_datos():
             return pd.DataFrame()
     return pd.DataFrame()
 
-
+# --- Guardado de Datos ---
+# Guarda el DataFrame actual en el archivo JSON de la base de datos.
 def guardar_datos(df):
     try:
-        # Convertir a formato de fechas ISO para guardar en JSON
         if 'Fecha' in df.columns:
             df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime('%Y-%m-%d')
-        
-        # Guardar en JSON para mantener la integridad de los datos
         df.to_json(DB_PATH, orient='records', date_format='iso')
-
     except Exception as e:
         st.error(f"Error al guardar la base de datos: {e}")
 
-
-# --- Login ---
+# --- Lógica de Inicio de Sesión de Administrador ---
+# Muestra un formulario de inicio de sesión para el administrador.
 def login():
     st.title("🔐 Login Administrador")
     user = st.text_input("Usuario")
@@ -182,15 +184,12 @@ def login():
     if st.button("Entrar"):
         if user == ADMIN_USER and pwd == ADMIN_PASS:
             st.session_state.logged_in = True
-            try:
-                st.experimental_rerun()
-            except AttributeError:
-                st.rerun()
+            st.rerun()
         else:
             st.error("❌ Usuario o contraseña incorrectos")
 
-
-# --- Dashboard admin ---
+# --- Dashboard de Administración ---
+# Muestra visualizaciones y análisis de los datos cargados, con filtros por producto, estado y fecha.
 def admin_dashboard():
     df = cargar_datos()
     if df.empty:
@@ -234,7 +233,6 @@ def admin_dashboard():
             st.warning("No hay fechas disponibles para filtrar.")
             return
 
-    # --- DATOS FILTRADOS POR FECHA (PARA GRÁFICAS DIARIAS) ---
     df_filtrado = df[df['Fecha'] == fecha_seleccionada]
     if productos_seleccionados:
         df_filtrado = df_filtrado[df_filtrado['Producto'].isin(productos_seleccionados)]
@@ -286,15 +284,12 @@ def admin_dashboard():
     st.markdown("#### 📝 Datos filtrados del día")
     st.dataframe(df_filtrado)
 
-
-    # --- ANÁLISIS HISTÓRICO ACUMULADO (TOP 10) ---
+    # --- Análisis Histórico Acumulado (TOP 10) ---
     st.markdown("---")
     st.subheader("🏆 Análisis histórico - Top 10 Destinos")
     st.info("Estas gráficas se basan en **todos los datos del archivo histórico**.")
 
-    # Aseguramos que las columnas necesarias existan en el DataFrame completo
     if 'Destino' in df.columns and 'Estado de atención' in df.columns:
-
         # 1. TOP 10 FACTURADOS
         df_historico_facturados = df[df['Estado de atención'].str.contains('FACTURADO', case=False, na=False)]
         if not df_historico_facturados.empty:
@@ -352,17 +347,16 @@ def admin_dashboard():
             )
             st.altair_chart(chart_top_demorados, use_container_width=True)
 
-
-# --- Lógica de notificaciones más robusta ---
+# --- Lógica de Detección de Cambios y Notificaciones ---
+# Compara el DataFrame antiguo con el nuevo para detectar cambios de estado
+# y envía notificaciones a los tokens de FCM guardados.
 def check_and_notify_on_change(old_df, new_df):
     try:
-        # AÑADIDO: Agregar mensaje de inicio al historial
         st.session_state.messages.append({'type': 'warning', 'text': "⚠️ Iniciando detección de cambios..."})
         
-        # Estandarizar las columnas clave de ambos DataFrames de forma estricta
+        # Función auxiliar para limpiar y estandarizar DataFrames.
         def clean_dataframe(df):
             df_cleaned = df.copy()
-            # AHORA INCLUIMOS 'Folio pedido' en la limpieza
             for col in ['Destino', 'Folio pedido', 'Producto', 'Estado de atención']:
                 if col in df_cleaned.columns:
                     df_cleaned[col] = df_cleaned[col].astype(str).str.strip().str.upper()
@@ -375,14 +369,10 @@ def check_and_notify_on_change(old_df, new_df):
         old_df_clean = clean_dataframe(old_df)
         new_df_clean = clean_dataframe(new_df)
         
-        # AÑADIDO: Agregar diagnósticos al historial
         st.session_state.messages.append({'type': 'info', 'text': f"Diagnóstico - Filas en archivo antiguo: {len(old_df_clean)}"})
         st.session_state.messages.append({'type': 'info', 'text': f"Diagnóstico - Filas en archivo nuevo: {len(new_df_clean)}"})
 
-        # --- LÓGICA CON CLAVE DE COMPARACIÓN MÁS ROBUSTA ---
         cambios_detectados = []
-
-        # CAMBIO CLAVE: La clave de comparación ahora incluye 'Folio pedido'
         comparison_key_columns = ['Destino', 'Folio pedido', 'Producto', 'Fecha']
         old_df_indexed = old_df_clean.set_index(comparison_key_columns)
         
@@ -409,33 +399,43 @@ def check_and_notify_on_change(old_df, new_df):
         cambios_df = pd.DataFrame(cambios_detectados)
         
         if not cambios_df.empty:
-            # AÑADIDO: Agregar mensaje de cambios al historial
             st.session_state.messages.append({'type': 'info', 'text': f"🔍 Se detectaron {len(cambios_df)} cambios de estatus."})
-            
             st.warning("🔔 Enviando notificaciones...")
             
+            # Verifica si hay tokens de FCM guardados en la sesión.
+            if 'fcm_tokens' not in st.session_state:
+                st.session_state.fcm_tokens = {}
+                st.warning("⚠️ No se encontraron tokens de FCM guardados para notificar.")
+                return
+
+            # Itera sobre los cambios detectados y envía una notificación por cada uno.
             for _, row in cambios_df.iterrows():
                 destino = row['Destino']
-                estado_anterior = row['Estado de atención_old']
-                estado_nuevo = row['Estado de atención_new']
+                destino_num = str(destino).split('-')[0].strip().upper()
                 
-                destino_num = str(destino).split('-')[0].strip()
-                titulo = f"Actualización en Destino: {destino}"
-                mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
-                enviar_notificacion_por_destino(destino_num, titulo, mensaje)
+                # Si existe un token para este destino, envía la notificación.
+                if destino_num in st.session_state.fcm_tokens:
+                    token = st.session_state.fcm_tokens[destino_num]
+                    estado_anterior = row['Estado de atención_old']
+                    estado_nuevo = row['Estado de atención_new']
+                    
+                    titulo = f"Actualización en Destino: {destino}"
+                    mensaje = f"Estado cambió de '{estado_anterior}' a '{estado_nuevo}'"
+                    
+                    enviar_notificacion_por_token(token, titulo, mensaje)
+                else:
+                    st.warning(f"No se encontró un token para el destino {destino_num}. No se enviará notificación.")
         else:
-            # AÑADIDO: Agregar mensaje de no cambios al historial
             st.session_state.messages.append({'type': 'success', 'text': "✅ No se detectaron cambios en el estado de los destinos."})
-            
     except Exception as e:
-        # AÑADIDO: Agregar mensaje de error al historial
         st.session_state.messages.append({'type': 'error', 'text': f"❌ Error en la lógica de notificación: {e}"})
 
-# --- Nueva función de administrador ---
+# --- Panel de Administración ---
+# Permite al administrador subir archivos Excel para actualizar la base de datos
+# y ver el historial de actualizaciones y mensajes de la aplicación.
 def admin_panel():
     st.title("📤 Subida de archivo Excel")
 
-    # Inicializar la lista de mensajes si no existe
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
@@ -449,10 +449,7 @@ def admin_panel():
             except Exception as e:
                 st.session_state.messages.append({'type': 'error', 'text': f"Error al cargar la base de datos histórica: {e}"})
                 st.session_state.last_df = pd.DataFrame()
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
+                st.rerun()
 
     with col1:
         uploaded_file = st.file_uploader("Selecciona archivo (.xlsx)", type=["xlsx"])
@@ -464,7 +461,6 @@ def admin_panel():
             
         if uploaded_file is not None:
             try:
-                # --- Lectura de archivo más robusta ---
                 df_nuevo = pd.read_excel(
                     uploaded_file,
                     engine='openpyxl',
@@ -489,7 +485,6 @@ def admin_panel():
                     if not df_historico_old.empty:
                         check_and_notify_on_change(df_historico_old, df_nuevo)
                     
-                    # --- GUARDAR EN JSON ---
                     guardar_datos(df_nuevo)
                     st.session_state.last_df = df_nuevo.copy()
 
@@ -499,18 +494,11 @@ def admin_panel():
                     st.session_state.messages.append({'type': 'success', 'text': "✅ Base de datos histórica actualizada. El archivo subido es la nueva base."})
 
                     st.cache_data.clear()
-
-                    try:
-                        st.experimental_rerun()
-                    except AttributeError:
-                        st.rerun()
+                    st.rerun()
 
             except Exception as e:
                 st.session_state.messages.append({'type': 'error', 'text': f"❌ Error al procesar archivo: {e}"})
-                try:
-                    st.experimental_rerun()
-                except AttributeError:
-                    st.rerun()
+                st.rerun()
                 
     with col2:
         with st.expander("📅 Historial de actualizaciones"):
@@ -540,14 +528,10 @@ def admin_panel():
                 st.info(f"{i+1}. {msg_data['text']}")
         if st.button("Limpiar historial"):
             st.session_state.messages = []
-            try:
-                st.experimental_rerun()
-            except AttributeError:
-                st.rerun()
+            st.rerun()
     else:
         st.info("No hay acciones recientes.")
     # --- Fin del Historial de Mensajes ---
-
 
     admin_dashboard()
     
@@ -555,10 +539,7 @@ def admin_panel():
         st.session_state.logged_in = False
         st.session_state.last_df = pd.DataFrame()
         st.session_state.messages = []
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            st.rerun()
+        st.rerun()
             
     st.markdown("---")
     st.header("⚠️ Opciones de mantenimiento")
@@ -579,14 +560,10 @@ def admin_panel():
         st.session_state.messages.append({'type': 'info', 'text': "Ahora la aplicación está en un estado 'de fábrica'. Por favor, sube tu primer archivo Excel para comenzar un nuevo historial limpio."})
         
         st.cache_data.clear()
-        
-        try:
-            st.experimental_rerun()
-        except AttributeError:
-            st.rerun()
+        st.rerun()
 
-
-# --- Función para mostrar fichas visuales (SIN el botón) ---
+# --- Función para Mostrar Fichas Visuales ---
+# Genera y muestra tarjetas visuales para cada fila de datos de destino.
 def mostrar_fichas_visuales(df_resultado):
     colores = {
         "PROGRAMADO": (0, 123, 255),
@@ -653,7 +630,6 @@ def mostrar_fichas_visuales(df_resultado):
                 <b>Producto:</b> {fila.get('Producto', 'N/A')}<br>
                 <b>Turno:</b> {fila.get('Turno', 'N/A')}<br>
                 <b>Capacidad (L):</b> {fila.get('Capacidad programada (Litros)', 'N/A')}<br>
-
         """
 
         fecha_estimada = fila.get('Fecha y hora estimada', None)
@@ -671,8 +647,8 @@ def mostrar_fichas_visuales(df_resultado):
         """
         st.markdown(ficha_html, unsafe_allow_html=True)
 
-
-# --- Panel de usuario corregido para mostrar por día y suscribir por número ---
+# --- Panel de Usuario ---
+# Permite a los usuarios consultar el estado de un destino específico y suscribirse a notificaciones.
 def user_panel():
     st.title("🔍 Consulta de Estatus")
 
@@ -715,59 +691,57 @@ def user_panel():
         df['Destino'] = df['Destino'].astype(str).str.strip().str.upper()
 
         resultado = df[df['Destino_num'] == pedido.strip()]
-
+        
         if not resultado.empty:
-            destino_para_suscripcion = resultado['Destino'].iloc[0]
-            destino_num_para_suscripcion = str(destino_para_suscripcion).split('-')[0].strip().upper()
+            destino_num_para_suscripcion = str(resultado['Destino_num'].iloc[0]).strip().upper()
+            
+            # --- Sección de Suscripción a Notificaciones de Firebase ---
+            st.markdown(f"""
+                ---
+                ### Suscripción a notificaciones del Destino {destino_num_para_suscripcion}
+                
+                **Paso 1:** Permite las notificaciones de este sitio en tu navegador cuando te lo pregunte.
+                
+                **Paso 2:** Haz clic en el botón de abajo y revisa la **consola del navegador (F12)**. El token de suscripción aparecerá ahí y en una alerta.
+            """)
+            
+            if st.button(f"🔔 Obtener mi token para Destino {destino_num_para_suscripcion}", key="get_token"):
+                st.info("Copia el token que se mostró en la consola y pégalo en el campo siguiente.")
+                
+            st.markdown("---")
+            fcm_token = st.text_input("Pega tu Token de FCM aquí:", key="fcm_token_input")
+            
+            if fcm_token:
+                # Guarda el token en el estado de la sesión de Streamlit para que el backend pueda usarlo.
+                if 'fcm_tokens' not in st.session_state:
+                    st.session_state.fcm_tokens = {}
+                st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token
+                st.success(f"✅ Token guardado. Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
+            
+            # --- Fin de la Sección de Suscripción ---
+            
+            if not resultado.empty:
+                mostrar_fichas_visuales(resultado)
+            else:
+                st.warning("No se encontró ningún destino con ese número.")
+                if 'last_df' in st.session_state and not st.session_state.last_df.empty:
+                    st.markdown("---")
+                    st.subheader("Búsqueda en base histórica")
+                    df_historico = st.session_state.last_df
+                    df_historico['Destino_num'] = df_historico['Destino'].astype(str).str.split('-').str[0].str.strip()
+                    resultado_historico = df_historico[df_historico['Destino_num'] == pedido.strip()]
+                    if not resultado_historico.empty:
+                        st.markdown("Hemos encontrado este destino en nuestra base de datos, pero no está activo en el archivo más reciente:")
+                        mostrar_fichas_visuales(resultado_historico)
+                    else:
+                        st.info("No se encontró este destino en la base de datos histórica.")
 
-            descripcion = f"Suscríbete para recibir notificaciones sobre cualquier cambio en el estatus del Destino {destino_num_para_suscripcion}. Las notificaciones se enviarán automáticamente solo cuando haya una actualización."
-            st.info(descripcion)
-
-            if st.button(f"🔔 Suscribirme al Destino {destino_num_para_suscripcion}", key=f"sub_{destino_num_para_suscripcion}"):
-
-                st.success(f"¡Suscripción exitosa! Ahora recibirás notificaciones para el Destino {destino_num_para_suscripcion}.")
-
-                st.markdown(f"""
-                <script>
-                window.OneSignal = window.OneSignal || [];
-                OneSignal.push(function() {{
-                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {{
-                        if (isEnabled) {{
-                            OneSignal.sendTags({{
-                                destino_id: "{destino_num_para_suscripcion}"
-                            }}).then(function(tags) {{
-                                console.log('Suscrito al destino:', tags);
-                            }});
-                        }} else {{
-                            OneSignal.showSlidedownPrompt();
-                            alert('Por favor, activa las notificaciones para poder suscribirte.');
-                        }}
-                    }});
-                }});
-                </script>
-                """, unsafe_allow_html=True)
-
-        if not resultado.empty:
-            mostrar_fichas_visuales(resultado)
-        else:
-            st.warning("No se encontró ningún destino con ese número.")
-            if 'last_df' in st.session_state and not st.session_state.last_df.empty:
-                st.markdown("---")
-                st.subheader("Búsqueda en base histórica")
-                df_historico = st.session_state.last_df
-                df_historico['Destino_num'] = df_historico['Destino'].astype(str).str.split('-').str[0].str.strip()
-                resultado_historico = df_historico[df_historico['Destino_num'] == pedido.strip()]
-                if not resultado_historico.empty:
-                    st.markdown("Hemos encontrado este destino en nuestra base de datos, pero no está activo en el archivo más reciente:")
-                    mostrar_fichas_visuales(resultado_historico)
-                else:
-                    st.info("No se encontró este destino en la base de datos histórica.")
-
-
-# --- Lógica principal de la app ---
+# --- Lógica Principal de la Aplicación ---
+# Controla el flujo de la aplicación, mostrando el panel de usuario o el panel de administración
+# dependiendo del estado de inicio de sesión.
 def main():
     pwa_setup()
-    onesignal_web_push_setup()
+    fcm_pwa_setup() # Llama a la función que configura Firebase y PWA en el frontend.
 
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
@@ -783,10 +757,7 @@ def main():
             st.session_state.logged_in = False
             st.session_state.last_df = pd.DataFrame()
             st.session_state.messages = []
-            try:
-                st.experimental_rerun()
-            except AttributeError:
-                st.rerun()
+            st.rerun()
     else:
         st.sidebar.title("Menú")
         opcion = st.sidebar.radio("Elige una opción:", ["Consulta", "Administrador"])
@@ -795,5 +766,7 @@ def main():
         elif opcion == "Administrador":
             login()
 
+# --- Punto de Entrada de la Aplicación ---
+# Asegura que la función 'main' se ejecute cuando el script es iniciado.
 if __name__ == "__main__":
     main()
