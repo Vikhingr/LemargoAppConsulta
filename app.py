@@ -73,10 +73,12 @@ def fcm_pwa_setup(fcm_token_input_id):
 
     st.markdown(f"""
     <script>
+    console.log("FCM Setup script loaded."); // Mensaje de depuración: Script cargado
     // Importa los módulos de Firebase de forma asíncrona.
     import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
         .then((module) => {{
             const firebase = module.default;
+            console.log("Firebase app module loaded and initialized."); // Mensaje de depuración: Módulo app cargado
             // Inicializa la aplicación Firebase con la configuración proporcionada.
             firebase.initializeApp(JSON.parse('{firebase_config_js}'));
 
@@ -85,58 +87,62 @@ def fcm_pwa_setup(fcm_token_input_id):
         }})
         .then((module) => {{
             const messaging = module.default();
+            console.log("Firebase Messaging module loaded."); // Mensaje de depuración: Módulo messaging cargado
 
             // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
             // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
             if ('serviceWorker' in navigator) {{
                 navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
                 .then((registration) => {{
-                    console.log('Service Worker registrado con éxito:', registration);
+                    console.log('Service Worker registrado con éxito:', registration); // Mensaje de depuración: SW registrado
                     // Establece la instancia de mensajería para el Service Worker
                     messaging.useServiceWorker(registration);
                 }})
                 .catch((err) => {{
-                    console.error('Error al registrar el Service Worker:', err);
+                    console.error('Error al registrar el Service Worker:', err); // Error de depuración: Fallo SW
                 }});
+            }} else {{
+                console.warn('Service Workers no soportados en este navegador.'); // Advertencia de depuración: SW no soportado
             }}
 
             // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
             async function getAndSendFcmToken() {{
-                console.log('Intentando obtener el token FCM...');
+                console.log('getAndSendFcmToken: Intentando obtener el token FCM...'); // Mensaje de depuración: Inicio getAndSendFcmToken
                 // Solicita permiso de notificación explícitamente
                 const permission = await Notification.requestPermission();
-                console.log('Permiso de notificación:', permission);
+                console.log('getAndSendFcmToken: Permiso de notificación:', permission); // Mensaje de depuración: Estado del permiso
 
                 if (permission === 'granted') {{
                     messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
                         if (currentToken) {{
-                            console.log('FCM Registration Token:', currentToken);
+                            console.log('getAndSendFcmToken: FCM Registration Token:', currentToken); // Mensaje de depuración: Token obtenido
                             // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
                             const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
                             if (hiddenInput) {{
                                 hiddenInput.value = currentToken;
                                 // Simula un evento de cambio para que Streamlit detecte la actualización.
                                 hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                console.log('Token enviado a Streamlit.');
+                                console.log('getAndSendFcmToken: Token enviado a Streamlit.'); // Mensaje de depuración: Token enviado
                             }} else {{
-                                console.warn('Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
+                                console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.'); // Advertencia de depuración: Input oculto no encontrado
                             }}
                         }} else {{
-                            console.log('No se pudo obtener el token. No hay token actual.');
+                            console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.'); // Mensaje de depuración: No hay token actual
                         }}
                     }}).catch((err) => {{
-                        console.error('Ocurrió un error al obtener el token: ', err);
+                        console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err); // Error de depuración: Fallo al obtener token
                     }});
                 }} else {{
-                    console.warn('Permiso de notificación denegado o no concedido.');
+                    console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.'); // Advertencia de depuración: Permiso denegado
                 }}
             }}
             
             // Exponer la función globalmente para que Streamlit pueda llamarla
             window.triggerFcmTokenAcquisition = getAndSendFcmToken;
+            console.log("triggerFcmTokenAcquisition function exposed globally."); // Mensaje de depuración: Función expuesta
         }})
         .catch((err) => {{
-            console.error("Error al cargar los scripts de Firebase", err);
+            console.error("Error al cargar los scripts de Firebase", err); // Error de depuración: Fallo carga scripts
         }});
     </script>
     """, unsafe_allow_html=True)
@@ -841,12 +847,14 @@ def user_panel():
                 # Inyecta JavaScript para llamar a la función global que obtiene el token
                 st.markdown(f"""
                     <script>
+                        console.log("Button clicked: Attempting to call triggerFcmTokenAcquisition."); // Mensaje de depuración: Botón clicado
                         // Añade un pequeño retraso para asegurar que el DOM esté listo
                         setTimeout(() => {{
                             if (window.triggerFcmTokenAcquisition) {{
+                                console.log("Calling triggerFcmTokenAcquisition..."); // Mensaje de depuración: Llamando a la función
                                 window.triggerFcmTokenAcquisition();
                             }} else {{
-                                console.error('triggerFcmTokenAcquisition no está definida.');
+                                console.error('triggerFcmTokenAcquisition no está definida al momento de la llamada.'); // Error de depuración: Función no definida
                             }}
                         }}, 500); // 500ms de retraso
                     </script>
