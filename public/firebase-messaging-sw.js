@@ -8,12 +8,12 @@ importScripts('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js')
 const firebaseConfig = {
   // Las siguientes claves no son estrictamente necesarias para el Service Worker en sí,
   // pero se incluyen para una inicialización completa si fuera necesario.
-  apiKey: "dummy", 
-  authDomain: "dummy",
-  projectId: "dummy",
-  storageBucket: "dummy",
-  messagingSenderId: "120054139227", // <-- ¡Este es tu ID de remitente real!
-  appId: "dummy"
+  "apiKey": "AIzaSyCCCW3wmQ8sGjsiehPWI65JIEUaaej9VXQ",
+  "authDomain": "lemargo-app-de-consulta.firebaseapp.com",
+  "projectId": "lemargo-app-de-consulta",
+  "storageBucket": "lemargo-app-de-consulta.firebasestorage.app",
+  "messagingSenderId": "120054139227",
+  "appId": "1:120054139227:web:531983ede51253e35ef27e"
 };
 
 // Inicializa la aplicación Firebase en el Service Worker
