@@ -77,6 +77,10 @@ def fcm_pwa_setup(fcm_token_input_id):
     
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
+    # Define la URL del Service Worker aquí. Por defecto, es relativa.
+    # Si el problema del tipo MIME persiste, el usuario puede cambiar esto a una URL externa.
+    service_worker_url = "/public/firebase-messaging-sw.js" 
+
     js_code = f"""
     <div id="firebase-config-data" data-firebase-config='{firebase_config_html_safe}' data-vapid-key="{vapid_key_js}"></div>
     
@@ -91,9 +95,11 @@ def fcm_pwa_setup(fcm_token_input_id):
     const configDataElement = document.getElementById('firebase-config-data');
     const firebaseConfigString = configDataElement.dataset.firebaseConfig;
     const vapidKey = configDataElement.dataset.vapidKey;
+    const serviceWorkerUrl = "{service_worker_url}"; // Pasa la URL del SW a JS
 
     console.log("Raw Firebase Config String from data-attribute:", firebaseConfigString);
     console.log("VAPID Key from data-attribute:", vapidKey);
+    console.log("Service Worker URL:", serviceWorkerUrl);
 
     let firebaseConfig;
     try {{
@@ -107,9 +113,10 @@ def fcm_pwa_setup(fcm_token_input_id):
     function initFirebaseAndMessaging() {{
         console.log("Attempting to initialize Firebase and Messaging...");
         console.log("Type of global 'firebase':", typeof firebase);
+        console.log("Current Firebase apps length:", firebase.apps ? firebase.apps.length : 'undefined'); // Log para depuración
         
         // Check if Firebase is already initialized
-        if (!firebase.apps.length) {{ // <--- ¡Aquí está el cambio clave!
+        if (!firebase.apps.length) {{ 
             if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
                 console.log("Global Firebase object found and initializeApp is a function.");
                 firebase.initializeApp(firebaseConfig);
@@ -129,7 +136,7 @@ def fcm_pwa_setup(fcm_token_input_id):
 
             // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
             if ('serviceWorker' in navigator) {{
-                navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
+                navigator.serviceWorker.register(serviceWorkerUrl) // Usa la variable
                 .then((registration) => {{
                     console.log('Service Worker registrado con éxito:', registration);
                     messaging.useServiceWorker(registration);
