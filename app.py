@@ -126,15 +126,8 @@ def fcm_pwa_setup(fcm_token_input_id):
                 }});
             }}
             
-            // Llama a la función para obtener y enviar el token automáticamente al cargar la página.
-            // Se usa un pequeño retraso para asegurar que el DOM de Streamlit esté listo.
-            setTimeout(getAndSendFcmToken, 1000); 
-
-            // Escucha las notificaciones cuando la aplicación está en primer plano.
-            messaging.onMessage(function(payload) {{
-                console.log('Mensaje recibido en primer plano: ', payload);
-                alert(payload.notification.title + ": " + payload.notification.body);
-            }});
+            // Exponer la función globalmente para que Streamlit pueda llamarla
+            window.triggerFcmTokenAcquisition = getAndSendFcmToken;
         }})
         .catch((err) => {{
             console.error("Error al cargar los scripts de Firebase", err);
@@ -778,17 +771,30 @@ def user_panel():
         if not resultado.empty:
             destino_num_para_suscripcion = str(resultado['Destino_num'].iloc[0]).strip().upper()
             
-            # --- Sección de Suscripción a Notificaciones de Firebase (Automática) ---
+            # --- Sección de Suscripción a Notificaciones de Firebase (con botón y proceso automático) ---
             st.markdown(f"""
                 ---
                 ### Suscripción a notificaciones del Destino {destino_num_para_suscripcion}
                 
-                **Paso único:** Permite las notificaciones de este sitio en tu navegador cuando te lo pregunte.
-                Tu suscripción se guardará automáticamente.
+                **Paso único:** Haz clic en el botón de abajo para permitir las notificaciones de este sitio en tu navegador. Tu suscripción se guardará automáticamente.
             """)
             
+            # Botón para activar la suscripción
+            if st.button(f"🔔 Suscribirme a notificaciones para Destino {destino_num_para_suscripcion}", key="subscribe_button"):
+                # Inyecta JavaScript para llamar a la función global que obtiene el token
+                st.markdown(f"""
+                    <script>
+                        if (window.triggerFcmTokenAcquisition) {{
+                            window.triggerFcmTokenAcquisition();
+                        }} else {{
+                            console.error('triggerFcmTokenAcquisition no está definida.');
+                        }}
+                    </script>
+                """, unsafe_allow_html=True)
+                st.info("Solicitando permiso de notificación. Por favor, acepta la solicitud del navegador.")
+
             # Campo oculto para recibir el token de FCM desde JavaScript
-            # st.text_input genera un elemento HTML <input> al que podemos acceder con JS
+            # Streamlit genera un elemento HTML <input> al que podemos acceder con JS
             fcm_token_received = st.text_input(
                 "FCM Token (oculto)", 
                 value="", 
@@ -815,8 +821,7 @@ def user_panel():
                 if st.session_state.fcm_tokens.get(destino_num_para_suscripcion) != fcm_token_received:
                     st.session_state.fcm_tokens[destino_num_para_suscripcion] = fcm_token_received
                     st.success(f"✅ ¡Suscripción exitosa! Ahora recibirás notificaciones para el destino **{destino_num_para_suscripcion}**.")
-                    # Opcional: Puedes forzar un rerun si quieres que el mensaje de éxito aparezca de inmediato
-                    # st.rerun()
+                    # No se usa st.rerun() aquí para evitar que la página se recargue inmediatamente después del mensaje de éxito.
             
             # --- Fin de la Sección de Suscripción ---
             
