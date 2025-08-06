@@ -69,19 +69,44 @@ def pwa_setup():
 # solicitar permisos de notificación y obtener el token de registro de FCM.
 # Ahora, el token se envía automáticamente a un campo oculto de Streamlit.
 def fcm_pwa_setup(fcm_token_input_id):
-    firebase_config_js = st.secrets.get("FIREBASE_CONFIG")
+    firebase_config_raw = st.secrets.get("FIREBASE_CONFIG")
+    # No necesitamos escapar la cadena JSON aquí para el JavaScript,
+    # ya que la pasaremos como un atributo data-.
+    # Sin embargo, para el atributo data-, debemos asegurarnos de que sea una cadena válida.
+    # json.dumps(firebase_config_raw) la envolverá en comillas y escapará las internas.
+    firebase_config_attr = json.dumps(firebase_config_raw) # Esto escapa las comillas y newlines para el atributo HTML
+    
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
     js_code = f"""
+    <div id="firebase-config-data" data-firebase-config={firebase_config_attr} data-vapid-key="{vapid_key_js}"></div>
     <script>
     console.log("FCM Setup script loaded via components.v1.html."); // Mensaje de depuración: Script cargado via components.v1.html
+    
+    // Obtener la configuración de Firebase y la clave VAPID del atributo data-
+    const configDataElement = document.getElementById('firebase-config-data');
+    const firebaseConfigString = configDataElement.dataset.firebaseConfig;
+    const vapidKey = configDataElement.dataset.vapidKey;
+
+    console.log("Raw Firebase Config String from data-attribute:", firebaseConfigString);
+    console.log("VAPID Key from data-attribute:", vapidKey);
+
+    let firebaseConfig;
+    try {{
+        firebaseConfig = JSON.parse(firebaseConfigString);
+        console.log("Parsed Firebase Config:", firebaseConfig);
+    }} catch (e) {{
+        console.error("Error parsing Firebase config from data-attribute:", e);
+        return; // Detener la ejecución si la configuración no se puede parsear
+    }}
+
     // Importa los módulos de Firebase de forma asíncrona.
     import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
         .then((module) => {{
             const firebase = module.default;
             console.log("Firebase app module loaded and initialized."); // Mensaje de depuración: Módulo app cargado
-            // Inicializa la aplicación Firebase con la configuración proporcionada.
-            firebase.initializeApp(JSON.parse('{firebase_config_js}'));
+            // Inicializa la aplicación Firebase con la configuración obtenida.
+            firebase.initializeApp(firebaseConfig);
 
             // Carga el módulo de mensajería de Firebase.
             return import('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js');
@@ -114,7 +139,7 @@ def fcm_pwa_setup(fcm_token_input_id):
                 console.log('getAndSendFcmToken: Permiso de notificación:', permission); // Mensaje de depuración: Estado del permiso
 
                 if (permission === 'granted') {{
-                    messaging.getToken({{ vapidKey: '{vapid_key_js}' }}).then((currentToken) => {{
+                    messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
                         if (currentToken) {{
                             console.log('getAndSendFcmToken: FCM Registration Token:', currentToken); // Mensaje de depuración: Token obtenido
                             // Encuentra el elemento de entrada oculto de Streamlit por su aria-label.
