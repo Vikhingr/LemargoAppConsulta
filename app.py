@@ -77,9 +77,9 @@ def fcm_pwa_setup(fcm_token_input_id):
     
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
-    # Define la URL del Service Worker aquí. Por defecto, es relativa.
-    # Si el problema del tipo MIME persiste, el usuario puede cambiar esto a una URL externa.
-    service_worker_url = "/public/firebase-messaging-sw.js" 
+    # Define la URL del Service Worker aquí.
+    # CAMBIA ESTA LÍNEA por la URL de tu Service Worker alojado en GitHub Pages o similar.
+    service_worker_url = "https://vikhingr.github.io/LemargoPWA/firebase-messaging-sw.js" # EJEMPLO: Reemplaza con tu URL REAL
 
     js_code = f"""
     <div id="firebase-config-data" data-firebase-config='{firebase_config_html_safe}' data-vapid-key="{vapid_key_js}"></div>
