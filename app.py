@@ -102,19 +102,24 @@ def fcm_pwa_setup(fcm_token_input_id):
 
     // Importa los módulos de Firebase de forma asíncrona.
     import('https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js')
-        .then((module) => {{
-            const firebase = module.default;
-            console.log("Firebase app module loaded and initialized."); // Mensaje de depuración: Módulo app cargado
-            // Inicializa la aplicación Firebase con la configuración obtenida.
-            // Esto fallará si firebaseConfig es undefined debido a un error de parseo.
-            firebase.initializeApp(firebaseConfig);
-
-            // Carga el módulo de mensajería de Firebase.
-            return import('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js');
+        .then(() => {{ // No necesitamos el 'module' aquí si 'firebase' se vuelve global
+            console.log("Firebase app module import promise resolved."); 
+            console.log("Type of global 'firebase' before init:", typeof firebase); // Check global firebase
+            
+            if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
+                console.log("Global Firebase object found and initializeApp is a function.");
+                firebase.initializeApp(firebaseConfig);
+                console.log("Firebase app initialized successfully.");
+                // Carga el módulo de mensajería de Firebase.
+                return import('https://www.gstatic.com/firebasejs/8.10.0/firebase-messaging.js');
+            }} else {{
+                console.error("Global Firebase object or initializeApp method is missing after firebase-app.js import. This might be due to CDN loading behavior or version mismatch.");
+                throw new Error("Firebase app not properly loaded or accessible.");
+            }}
         }})
         .then((module) => {{
             const messaging = module.default();
-            console.log("Firebase Messaging module loaded."); // Mensaje de depuración: Módulo messaging cargado
+            console.log("Firebase Messaging module loaded.");
 
             // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
             // Asegúrate de que '/public/firebase-messaging-sw.js' sea la ruta correcta a tu Service Worker.
@@ -169,7 +174,7 @@ def fcm_pwa_setup(fcm_token_input_id):
             console.log("triggerFcmTokenAcquisition function exposed globally."); // Mensaje de depuración: Función expuesta
         }})
         .catch((err) => {{
-            console.error("Error al cargar los scripts de Firebase", err); // Error de depuración: Fallo carga scripts
+            console.error("Error al cargar los scripts de Firebase o al inicializar:", err); // Mensaje de error más general
         }});
     </script>
     """
