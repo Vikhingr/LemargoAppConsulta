@@ -108,66 +108,72 @@ def fcm_pwa_setup(fcm_token_input_id):
         console.log("Attempting to initialize Firebase and Messaging...");
         console.log("Type of global 'firebase':", typeof firebase);
         
-        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
-            console.log("Global Firebase object found and initializeApp is a function.");
-            firebase.initializeApp(firebaseConfig);
-            console.log("Firebase app initialized successfully.");
-
-            // Asegurarse de que firebase.messaging esté disponible
-            if (typeof firebase.messaging === 'function') {{
-                const messaging = firebase.messaging();
-                console.log("Firebase Messaging initialized successfully.");
-
-                // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
-                if ('serviceWorker' in navigator) {{
-                    navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
-                    .then((registration) => {{
-                        console.log('Service Worker registrado con éxito:', registration);
-                        messaging.useServiceWorker(registration);
-                    }})
-                    .catch((err) => {{
-                        console.error('Error al registrar el Service Worker:', err);
-                    }});
-                }} else {{
-                    console.warn('Service Workers no soportados en este navegador.');
-                }}
-
-                // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
-                async function getAndSendFcmToken() {{
-                    console.log('getAndSendFcmToken: Intentando obtener el token FCM...');
-                    const permission = await Notification.requestPermission();
-                    console.log('getAndSendFcmToken: Permiso de notificación:', permission);
-
-                    if (permission === 'granted') {{
-                        messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
-                            if (currentToken) {{
-                                console.log('getAndSendFcmToken: FCM Registration Token:', currentToken);
-                                const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
-                                if (hiddenInput) {{
-                                    hiddenInput.value = currentToken;
-                                    hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                    console.log('getAndSendFcmToken: Token enviado a Streamlit.');
-                                }} else {{
-                                    console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
-                                }}
-                            }} else {{
-                                console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.');
-                            }}
-                        }}).catch((err) => {{
-                            console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err);
-                        }});
-                    }} else {{
-                        console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.');
-                    }}
-                }}
-                
-                window.triggerFcmTokenAcquisition = getAndSendFcmToken;
-                console.log("triggerFcmTokenAcquisition function exposed globally.");
+        // Check if Firebase is already initialized
+        if (!firebase.apps.length) {{ // <--- ¡Aquí está el cambio clave!
+            if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {{
+                console.log("Global Firebase object found and initializeApp is a function.");
+                firebase.initializeApp(firebaseConfig);
+                console.log("Firebase app initialized successfully.");
             }} else {{
-                console.error("Global firebase.messaging method is missing after firebase-messaging.js script load.");
+                console.error("Global Firebase object or initializeApp method is missing after firebase-app.js script load.");
+                return; // Exit if Firebase app cannot be initialized
             }}
         }} else {{
-            console.error("Global Firebase object or initializeApp method is missing after firebase-app.js script load.");
+            console.log("Firebase app named '[DEFAULT]' already exists. Skipping re-initialization.");
+        }}
+
+        // Asegurarse de que firebase.messaging esté disponible
+        if (typeof firebase.messaging === 'function') {{
+            const messaging = firebase.messaging();
+            console.log("Firebase Messaging initialized successfully.");
+
+            // **IMPORTANTE:** Registra el Service Worker para manejar notificaciones en segundo plano.
+            if ('serviceWorker' in navigator) {{
+                navigator.serviceWorker.register('/public/firebase-messaging-sw.js')
+                .then((registration) => {{
+                    console.log('Service Worker registrado con éxito:', registration);
+                    messaging.useServiceWorker(registration);
+                }})
+                .catch((err) => {{
+                    console.error('Error al registrar el Service Worker:', err);
+                }});
+            }} else {{
+                console.warn('Service Workers no soportados en este navegador.');
+            }}
+
+            // Función para obtener el token de registro de FCM y enviarlo a Streamlit.
+            async function getAndSendFcmToken() {{
+                console.log('getAndSendFcmToken: Intentando obtener el token FCM...');
+                const permission = await Notification.requestPermission();
+                console.log('getAndSendFcmToken: Permiso de notificación:', permission);
+
+                if (permission === 'granted') {{
+                    messaging.getToken({{ vapidKey: vapidKey }}).then((currentToken) => {{
+                        if (currentToken) {{
+                            console.log('getAndSendFcmToken: FCM Registration Token:', currentToken);
+                            const hiddenInput = document.querySelector('input[aria-label="FCM Token (oculto)"]');
+                            if (hiddenInput) {{
+                                hiddenInput.value = currentToken;
+                                hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                console.log('getAndSendFcmToken: Token enviado a Streamlit.');
+                            }} else {{
+                                console.warn('getAndSendFcmToken: Elemento de entrada oculto de Streamlit no encontrado por aria-label.');
+                            }}
+                        }} else {{
+                            console.log('getAndSendFcmToken: No se pudo obtener el token. No hay token actual.');
+                        }}
+                    }}).catch((err) => {{
+                        console.error('getAndSendFcmToken: Ocurrió un error al obtener el token: ', err);
+                    }});
+                }} else {{
+                    console.warn('getAndSendFcmToken: Permiso de notificación denegado o no concedido.');
+                }}
+            }}
+            
+            window.triggerFcmTokenAcquisition = getAndSendFcmToken;
+            console.log("triggerFcmTokenAcquisition function exposed globally.");
+        }} else {{
+            console.error("Global firebase.messaging method is missing after firebase-messaging.js script load.");
         }}
     }}
 
@@ -487,7 +493,7 @@ def check_and_notify_on_change(old_df, new_df):
             except KeyError:
                 pass
 
-        cambios_df = pd.DataFrame(cambios_detected)
+        cambios_df = pd.DataFrame(cambios_detectados)
         
         if not cambios_df.empty:
             st.session_state.messages.append({'type': 'info', 'text': f"🔍 Se detectaron {len(cambios_df)} cambios de estatus."})
