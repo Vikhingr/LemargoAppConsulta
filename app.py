@@ -70,11 +70,8 @@ def pwa_setup():
 # Ahora, el token se envía automáticamente a un campo oculto de Streamlit.
 def fcm_pwa_setup(fcm_token_input_id):
     firebase_config_raw = st.secrets.get("FIREBASE_CONFIG")
-    # No necesitamos escapar la cadena JSON aquí para el JavaScript,
-    # ya que la pasaremos como un atributo data-.
-    # Sin embargo, para el atributo data-, debemos asegurarnos de que sea una cadena válida.
-    # json.dumps(firebase_config_raw) la envolverá en comillas y escapará las internas.
-    firebase_config_attr = json.dumps(firebase_config_raw) # Esto escapa las comillas y newlines para el atributo HTML
+    # Para el atributo data-, debemos asegurarnos de que la cadena JSON sea válida y escapada.
+    firebase_config_attr = json.dumps(firebase_config_raw) 
     
     vapid_key_js = st.secrets.get("FIREBASE_VAPID_KEY")
 
@@ -97,7 +94,8 @@ def fcm_pwa_setup(fcm_token_input_id):
         console.log("Parsed Firebase Config:", firebaseConfig);
     }} catch (e) {{
         console.error("Error parsing Firebase config from data-attribute:", e);
-        return; // Detener la ejecución si la configuración no se puede parsear
+        // Eliminado: 'return;' aquí causaba el error 'Illegal return statement'.
+        // La inicialización de Firebase fallará si firebaseConfig es undefined.
     }}
 
     // Importa los módulos de Firebase de forma asíncrona.
@@ -106,6 +104,7 @@ def fcm_pwa_setup(fcm_token_input_id):
             const firebase = module.default;
             console.log("Firebase app module loaded and initialized."); // Mensaje de depuración: Módulo app cargado
             // Inicializa la aplicación Firebase con la configuración obtenida.
+            // Esto fallará si firebaseConfig es undefined debido a un error de parseo.
             firebase.initializeApp(firebaseConfig);
 
             // Carga el módulo de mensajería de Firebase.
@@ -692,7 +691,7 @@ def admin_panel():
         if st.button("🔴 Reiniciar tokens FCM", help="Borra todos los tokens de suscripción FCM guardados."):
             if os.path.exists(FCM_TOKENS_PATH):
                 os.remove(FCM_TOKENS_PATH)
-                st.session_state.messages.append({'type': 'success', 'text': "🗑️ Archivo de tokens FCM eliminado."})
+                st.session_state.messages.append({'type': 'success', 'text': "🗑️️ Archivo de tokens FCM eliminado."})
             else:
                 st.session_state.messages.append({'type': 'info', 'text': "Archivo de tokens FCM no encontrado."})
             
